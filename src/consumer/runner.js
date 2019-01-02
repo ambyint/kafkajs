@@ -20,6 +20,7 @@ module.exports = class Runner {
     consumerGroup,
     instrumentationEmitter,
     eachBatchAutoResolve = true,
+    parallelProcessing = false,
     eachBatch,
     eachMessage,
     heartbeatInterval,
@@ -30,6 +31,7 @@ module.exports = class Runner {
     this.consumerGroup = consumerGroup
     this.instrumentationEmitter = instrumentationEmitter
     this.eachBatchAutoResolve = eachBatchAutoResolve
+    this.parallelProcessing = parallelProcessing
     this.eachBatch = eachBatch
     this.eachMessage = eachMessage
     this.heartbeatInterval = heartbeatInterval
@@ -209,16 +211,7 @@ module.exports = class Runner {
       duration: Date.now() - startFetch,
     })
 
-    for (let batch of batches) {
-      if (!this.running) {
-        break
-      }
-
-      if (batch.isEmpty()) {
-        this.consumerGroup.resetOffset(batch)
-        continue
-      }
-
+    const onBatch = async batch => {
       const startBatchProcess = Date.now()
       const payload = {
         topic: batch.topic,
@@ -243,6 +236,41 @@ module.exports = class Runner {
         duration: Date.now() - startBatchProcess,
       })
     }
+
+    const parallel = async () => {
+      if (!this.running) {
+        return
+      }
+
+      Promise.all(
+        batches.map(async batch => {
+          if (batch.isEmpty()) {
+            this.consumerGroup.resetOffset(batch)
+            return
+          }
+
+          await onBatch(batch)
+        })
+      )
+    }
+
+    const series = async () => {
+      for (let batch of batches) {
+        if (!this.running) {
+          break
+        }
+
+        if (batch.isEmpty()) {
+          this.consumerGroup.resetOffset(batch)
+          continue
+        }
+
+        await onBatch(batch)
+      }
+    }
+
+    const processor = this.parallelProcessing ? parallel : series
+    await processor()
 
     await this.consumerGroup.commitOffsets()
     await this.consumerGroup.heartbeat({ interval: this.heartbeatInterval })
