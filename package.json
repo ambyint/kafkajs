@@ -28,7 +28,6 @@
     "test": "yarn lint && JEST_JUNIT_OUTPUT=test-report.xml ./scripts/testWithKafka.sh 'yarn test:local --ci --maxWorkers=4 --no-watchman'",
     "lint": "find . -path ./node_modules -prune -o -path ./coverage -prune -o -name '*.js' -print0 | xargs -0 ./node_modules/.bin/eslint",
     "format": "find . -path ./node_modules -prune -o -path ./coverage -prune -o -name '*.js' -print0 | xargs -0 ./node_modules/.bin/prettier --write",
-    "precommit": "lint-staged",
     "test:group:broker": "yarn test:local --testPathPattern 'src/broker/.*'",
     "test:group:admin": "yarn test:local --testPathPattern 'src/admin/.*'",
     "test:group:producer": "yarn test:local --testPathPattern 'src/producer/.*'",
