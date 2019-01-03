@@ -71,12 +71,19 @@ module.exports = ({
     })
   }
 
-  const createRunner = ({ eachBatchAutoResolve, eachBatch, eachMessage, onCrash }) => {
+  const createRunner = ({
+    eachBatchAutoResolve,
+    parallelProcessing,
+    eachBatch,
+    eachMessage,
+    onCrash,
+  }) => {
     return new Runner({
       logger: rootLogger,
       consumerGroup,
       instrumentationEmitter,
       eachBatchAutoResolve,
+      parallelProcessing,
       eachBatch,
       eachMessage,
       heartbeatInterval,
@@ -148,6 +155,7 @@ module.exports = ({
     autoCommitInterval = null,
     autoCommitThreshold = null,
     eachBatchAutoResolve = true,
+    parallelProcessing = true,
     eachBatch = null,
     eachMessage = null,
   } = {}) => {
@@ -160,6 +168,7 @@ module.exports = ({
       logger.info('Starting', { groupId })
       runner = createRunner({
         eachBatchAutoResolve,
+        parallelProcessing,
         eachBatch,
         eachMessage,
         onCrash,

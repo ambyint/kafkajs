@@ -242,7 +242,7 @@ module.exports = class Runner {
         return
       }
 
-      Promise.all(
+      await Promise.all(
         batches.map(async batch => {
           if (batch.isEmpty()) {
             this.consumerGroup.resetOffset(batch)
