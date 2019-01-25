@@ -346,6 +346,15 @@ module.exports = ({
     consumerGroup.resume(topicPartitions.map(({ topic }) => topic))
   }
 
+  const commitOffsets = async() => {
+	  if (!consumerGroup) {
+		  throw new KafkaJSNonRetriableError(
+			  'Consumer group was not initialized, consumer#run must be called first'
+		  )
+	  }
+      return consumerGroup.commitOffsets()
+  }
+
   /**
    * @return {Object} logger
    */
@@ -354,6 +363,7 @@ module.exports = ({
   return {
     connect,
     disconnect,
+    commitOffsets,
     subscribe,
     stop,
     run,
