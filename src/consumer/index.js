@@ -347,12 +347,15 @@ module.exports = ({
   }
 
   const commitOffsets = async() => {
-	  if (!consumerGroup) {
-		  throw new KafkaJSNonRetriableError(
-			  'Consumer group was not initialized, consumer#run must be called first'
-		  )
-	  }
-      return consumerGroup.commitOffsets()
+	  try {
+		  if (runner) {
+			  await runner.commitOffsets()
+		  }
+
+		  logger.info('Offsets committed', { groupId })
+	  } catch (e) {
+	    logger.error("Failed to commit offsets", { groupId})
+      }
   }
 
   /**

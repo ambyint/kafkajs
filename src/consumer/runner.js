@@ -112,6 +112,14 @@ module.exports = class Runner {
     } catch (e) {}
   }
 
+  async commitOffsets() {
+	  if (!this.running) {
+		  return
+	  }
+
+	  await this.consumerGroup.commitOffsets()
+  }
+
   waitForConsumer() {
     return new Promise(resolve => {
       const scheduleWait = () => {
