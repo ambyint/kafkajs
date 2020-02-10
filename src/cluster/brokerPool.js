@@ -5,6 +5,10 @@ const arrayDiff = require('../utils/arrayDiff')
 const { KafkaJSBrokerNotFound } = require('../errors')
 
 const { keys, assign, values } = Object
+const hasBrokerBeenReplaced = (broker, { host, port, rack }) =>
+  broker.connection.host !== host ||
+  broker.connection.port !== port ||
+  broker.connection.rack !== rack
 
 module.exports = class BrokerPool {
   /**
@@ -12,6 +16,7 @@ module.exports = class BrokerPool {
    * @param {Logger} logger
    * @param {Object} retry
    * @param {number} authenticationTimeout
+   * @param {number} reauthenticationThreshold
    * @param {number} metadataMaxAge
    */
   constructor({
@@ -21,6 +26,7 @@ module.exports = class BrokerPool {
     allowExperimentalV011,
     allowAutoTopicCreation,
     authenticationTimeout,
+    reauthenticationThreshold,
     metadataMaxAge,
   }) {
     this.rootLogger = logger
@@ -34,6 +40,7 @@ module.exports = class BrokerPool {
         allowExperimentalV011,
         allowAutoTopicCreation,
         authenticationTimeout,
+        reauthenticationThreshold,
         ...options,
       })
 
@@ -72,8 +79,6 @@ module.exports = class BrokerPool {
         await this.seedBroker.connect()
         this.versions = this.seedBroker.versions
       } catch (e) {
-        this.logger.error(e, { retryCount, retryTime })
-
         if (e.name === 'KafkaJSConnectionError' || e.type === 'ILLEGAL_SASL_STATE') {
           // Connection builder will always rotate the seed broker
           this.seedBroker = this.createBroker({
@@ -84,6 +89,8 @@ module.exports = class BrokerPool {
             `Failed to connect to seed broker, trying another broker from the list: ${e.message}`,
             { retryCount, retryTime }
           )
+        } else {
+          this.logger.error(e.message, { retryCount, retryTime })
         }
 
         if (e.retriable) throw e
@@ -120,13 +127,19 @@ module.exports = class BrokerPool {
         this.metadata = await broker.metadata(topics)
         this.metadataExpireAt = Date.now() + this.metadataMaxAge
 
+        const replacedBrokers = []
         this.brokers = this.metadata.brokers.reduce((result, { nodeId, host, port, rack }) => {
           if (result[nodeId]) {
-            return result
+            if (!hasBrokerBeenReplaced(result[nodeId], { host, port, rack })) {
+              return result
+            }
+
+            replacedBrokers.push(result[nodeId])
           }
 
           if (host === seedHost && port === seedPort) {
             this.seedBroker.nodeId = nodeId
+            this.seedBroker.connection.rack = rack
             return assign(result, {
               [nodeId]: this.seedBroker,
             })
@@ -154,7 +167,8 @@ module.exports = class BrokerPool {
           })
         })
 
-        await Promise.all(brokerDisconnects)
+        const replacedBrokersDisconnects = replacedBrokers.map(broker => broker.disconnect())
+        await Promise.all([...brokerDisconnects, ...replacedBrokersDisconnects])
       } catch (e) {
         if (e.type === 'LEADER_NOT_AVAILABLE') {
           throw e
@@ -174,7 +188,12 @@ module.exports = class BrokerPool {
    */
   async refreshMetadataIfNecessary(topics) {
     const shouldRefresh =
-      this.metadata == null || this.metadataExpireAt == null || Date.now() > this.metadataExpireAt
+      this.metadata == null ||
+      this.metadataExpireAt == null ||
+      Date.now() > this.metadataExpireAt ||
+      !topics.every(topic =>
+        this.metadata.topicMetadata.some(topicMetadata => topicMetadata.topic === topic)
+      )
 
     if (shouldRefresh) {
       return this.refreshMetadata(topics)
@@ -208,7 +227,7 @@ module.exports = class BrokerPool {
       throw new KafkaJSBrokerNotFound('No brokers in the broker pool')
     }
 
-    for (let nodeId of brokers) {
+    for (const nodeId of brokers) {
       const broker = await this.findBroker({ nodeId })
       try {
         return await callback({ nodeId, broker })
@@ -224,7 +243,7 @@ module.exports = class BrokerPool {
    */
   async findConnectedBroker() {
     const nodeIds = shuffle(keys(this.brokers))
-    let connectedBrokerId = nodeIds.find(nodeId => this.brokers[nodeId].isConnected())
+    const connectedBrokerId = nodeIds.find(nodeId => this.brokers[nodeId].isConnected())
 
     if (connectedBrokerId) {
       return await this.findBroker({ nodeId: connectedBrokerId })

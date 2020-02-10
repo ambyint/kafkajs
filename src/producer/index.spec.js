@@ -14,12 +14,15 @@ jest.mock('./eosManager', () => {
 })
 
 jest.mock('../retry', () => {
-  let spy = jest.fn().mockImplementation(jest.requireActual('../retry'))
+  const spy = jest.fn().mockImplementation(jest.requireActual('../retry'))
   retrySpy = spy
   return spy
 })
 
+const uuid = require('uuid/v4')
+const InstrumentationEventEmitter = require('../instrumentation/emitter')
 const createProducer = require('./index')
+const createConsumer = require('../consumer')
 const {
   secureRandom,
   connectionOpts,
@@ -33,13 +36,14 @@ const {
   newLogger,
   testIfKafka_0_11,
   createTopic,
+  waitForMessages,
 } = require('testHelpers')
 const createRetrier = require('../retry')
 
 const { KafkaJSNonRetriableError } = require('../errors')
 
 describe('Producer', () => {
-  let topicName, producer
+  let topicName, producer, consumer
 
   beforeEach(() => {
     topicName = `test-topic-${secureRandom()}`
@@ -47,6 +51,7 @@ describe('Producer', () => {
 
   afterEach(async () => {
     producer && (await producer.disconnect())
+    consumer && (await consumer.disconnect())
   })
 
   test('throws an error if the topic is invalid', async () => {
@@ -218,6 +223,137 @@ describe('Producer', () => {
     expect(disconnectListener).toHaveBeenCalled()
   })
 
+  test('emits the request event', async () => {
+    const emitter = new InstrumentationEventEmitter()
+    producer = createProducer({
+      logger: newLogger(),
+      cluster: createCluster({ instrumentationEmitter: emitter }),
+      instrumentationEmitter: emitter,
+    })
+
+    const requestListener = jest.fn().mockName('request')
+    producer.on(producer.events.REQUEST, requestListener)
+
+    await producer.connect()
+    expect(requestListener).toHaveBeenCalledWith({
+      id: expect.any(Number),
+      timestamp: expect.any(Number),
+      type: 'producer.network.request',
+      payload: {
+        apiKey: expect.any(Number),
+        apiName: 'ApiVersions',
+        apiVersion: expect.any(Number),
+        broker: expect.any(String),
+        clientId: expect.any(String),
+        correlationId: expect.any(Number),
+        createdAt: expect.any(Number),
+        duration: expect.any(Number),
+        pendingDuration: expect.any(Number),
+        sentAt: expect.any(Number),
+        size: expect.any(Number),
+      },
+    })
+  })
+
+  test('emits the request timeout event', async () => {
+    const emitter = new InstrumentationEventEmitter()
+    const cluster = createCluster({
+      requestTimeout: 1,
+      enforceRequestTimeout: true,
+      instrumentationEmitter: emitter,
+    })
+
+    producer = createProducer({
+      cluster,
+      logger: newLogger(),
+      instrumentationEmitter: emitter,
+    })
+
+    const requestListener = jest.fn().mockName('request_timeout')
+    producer.on(producer.events.REQUEST_TIMEOUT, requestListener)
+
+    await producer
+      .connect()
+      .then(() =>
+        producer.send({
+          acks: -1,
+          topic: topicName,
+          messages: [{ key: 'key-0', value: 'value-0' }],
+        })
+      )
+      .catch(e => e)
+
+    expect(requestListener).toHaveBeenCalledWith({
+      id: expect.any(Number),
+      timestamp: expect.any(Number),
+      type: 'producer.network.request_timeout',
+      payload: {
+        apiKey: expect.any(Number),
+        apiName: expect.any(String),
+        apiVersion: expect.any(Number),
+        broker: expect.any(String),
+        clientId: expect.any(String),
+        correlationId: expect.any(Number),
+        createdAt: expect.any(Number),
+        pendingDuration: expect.any(Number),
+        sentAt: expect.any(Number),
+      },
+    })
+  })
+
+  test('emits the request queue size event', async () => {
+    await createTopic({ topic: topicName, partitions: 8 })
+
+    const emitter = new InstrumentationEventEmitter()
+    const cluster = createCluster({
+      instrumentationEmitter: emitter,
+      maxInFlightRequests: 1,
+      clientId: 'test-client-id11111',
+    })
+
+    producer = createProducer({
+      cluster,
+      logger: newLogger(),
+      instrumentationEmitter: emitter,
+    })
+
+    const requestListener = jest.fn().mockName('request_queue_size')
+    producer.on(producer.events.REQUEST_QUEUE_SIZE, requestListener)
+
+    await producer.connect()
+    await Promise.all([
+      producer.send({
+        acks: -1,
+        topic: topicName,
+        messages: [
+          { partition: 0, value: 'value-0' },
+          { partition: 1, value: 'value-1' },
+          { partition: 2, value: 'value-2' },
+        ],
+      }),
+      producer.send({
+        acks: -1,
+        topic: topicName,
+        messages: [
+          { partition: 0, value: 'value-0' },
+          { partition: 1, value: 'value-1' },
+          { partition: 2, value: 'value-2' },
+        ],
+      }),
+    ])
+
+    expect(requestListener).toHaveBeenCalledWith({
+      id: expect.any(Number),
+      timestamp: expect.any(Number),
+      type: 'producer.network.request_queue_size',
+      payload: {
+        broker: expect.any(String),
+        clientId: expect.any(String),
+        queueSize: expect.any(Number),
+      },
+    })
+  })
+
   describe('when acks=0', () => {
     it('returns immediately', async () => {
       const cluster = createCluster({
@@ -288,6 +424,21 @@ describe('Producer', () => {
           timestamp: '-1',
         },
       ])
+    })
+
+    test('it should allow sending an empty list of messages', async () => {
+      const cluster = createCluster(
+        Object.assign(connectionOpts(), {
+          createPartitioner: createModPartitioner,
+        })
+      )
+
+      await createTopic({ topic: topicName })
+
+      producer = createProducer({ cluster, logger: newLogger(), idempotent })
+      await producer.connect()
+
+      await expect(producer.send({ acks, topic: topicName, messages: [] })).toResolve()
     })
 
     test('produce messages to multiple topics', async () => {
@@ -362,6 +513,104 @@ describe('Producer', () => {
       )
     })
 
+    test('sendBatch should allow sending an empty list of topicMessages', async () => {
+      const cluster = createCluster(
+        Object.assign(connectionOpts(), {
+          createPartitioner: createModPartitioner,
+        })
+      )
+
+      await createTopic({ topic: topicName })
+
+      producer = createProducer({ cluster, logger: newLogger(), idempotent })
+      await producer.connect()
+
+      await expect(producer.sendBatch({ acks, topicMessages: [] })).toResolve()
+    })
+
+    test('sendBatch should consolidate topicMessages by topic', async () => {
+      const cluster = createCluster(
+        Object.assign(connectionOpts(), {
+          createPartitioner: createModPartitioner,
+        })
+      )
+
+      await createTopic({ topic: topicName, partitions: 1 })
+
+      const messagesConsumed = []
+      consumer = createConsumer({
+        groupId: `test-consumer-${uuid()}`,
+        cluster: createCluster(),
+        logger: newLogger(),
+      })
+      await consumer.connect()
+      await consumer.subscribe({ topic: topicName, fromBeginning: true })
+      await consumer.run({
+        eachMessage: async event => {
+          messagesConsumed.push(event)
+        },
+      })
+
+      producer = createProducer({ cluster, logger: newLogger(), idempotent })
+      await producer.connect()
+
+      const topicMessages = [
+        {
+          topic: topicName,
+          messages: [{ key: 'key-1', value: 'value-1' }, { key: 'key-2', value: 'value-2' }],
+        },
+        {
+          topic: topicName,
+          messages: [{ key: 'key-3', value: 'value-3' }],
+        },
+      ]
+
+      const result = await producer.sendBatch({
+        acks,
+        topicMessages,
+      })
+      expect(result).toEqual([
+        {
+          topicName,
+          errorCode: 0,
+          offset: '0',
+          partition: 0,
+          timestamp: '-1',
+        },
+      ])
+
+      await waitForMessages(messagesConsumed, { number: 3 })
+      await expect(waitForMessages(messagesConsumed, { number: 3 })).resolves.toEqual([
+        expect.objectContaining({
+          topic: topicName,
+          partition: 0,
+          message: expect.objectContaining({
+            key: Buffer.from('key-1'),
+            value: Buffer.from('value-1'),
+            offset: '0',
+          }),
+        }),
+        expect.objectContaining({
+          topic: topicName,
+          partition: 0,
+          message: expect.objectContaining({
+            key: Buffer.from('key-2'),
+            value: Buffer.from('value-2'),
+            offset: '1',
+          }),
+        }),
+        expect.objectContaining({
+          topic: topicName,
+          partition: 0,
+          message: expect.objectContaining({
+            key: Buffer.from('key-3'),
+            value: Buffer.from('value-3'),
+            offset: '2',
+          }),
+        }),
+      ])
+    })
+
     testIfKafka_0_11('produce messages for Kafka 0.11', async () => {
       const cluster = createCluster(
         Object.assign(connectionOpts(), {
@@ -391,6 +640,7 @@ describe('Producer', () => {
           baseOffset: '0',
           errorCode: 0,
           logAppendTime: '-1',
+          logStartOffset: '0',
           partition: 0,
         },
       ])
@@ -401,9 +651,36 @@ describe('Producer', () => {
           baseOffset: '10',
           errorCode: 0,
           logAppendTime: '-1',
+          logStartOffset: '0',
           partition: 0,
         },
       ])
+    })
+
+    testIfKafka_0_11('produce messages for Kafka 0.11 without specifying message key', async () => {
+      const cluster = createCluster(
+        Object.assign(connectionOpts(), {
+          allowExperimentalV011: true,
+          createPartitioner: createModPartitioner,
+        })
+      )
+
+      await createTopic({ topic: topicName })
+
+      producer = createProducer({ cluster, logger: newLogger(), idempotent })
+      await producer.connect()
+
+      await expect(
+        producer.send({
+          acks,
+          topic: topicName,
+          messages: [
+            {
+              value: 'test-value',
+            },
+          ],
+        })
+      ).toResolve()
     })
 
     testIfKafka_0_11('produce messages for Kafka 0.11 with headers', async () => {
@@ -440,6 +717,7 @@ describe('Producer', () => {
           baseOffset: '0',
           errorCode: 0,
           logAppendTime: '-1',
+          logStartOffset: '0',
           partition: 0,
         },
       ])
@@ -450,6 +728,7 @@ describe('Producer', () => {
           baseOffset: '10',
           errorCode: 0,
           logAppendTime: '-1',
+          logStartOffset: '0',
           partition: 0,
         },
       ])
@@ -668,7 +947,7 @@ describe('Producer', () => {
 
       const markOffsetAsCommittedSpy = jest.spyOn(cluster, 'markOffsetAsCommitted')
 
-      await createTopic({ topic: topicName })
+      await createTopic({ topic: topicName, partitions: 2 })
 
       producer = createProducer({
         cluster,

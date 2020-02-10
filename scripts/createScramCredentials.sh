@@ -10,9 +10,9 @@ find_container_id() {
 }
 
 USERNAME=${USERNAME:='testscram'}
-PASSWORD_256=${PASSWORD_256:='testtestscram256'}
-PASSWORD_512=${PASSWORD_512:='testtestscram512'}
+PASSWORD_256=${PASSWORD_256:='testtestscram=256'}
+PASSWORD_512=${PASSWORD_512:='testtestscram=512'}
 
 docker exec \
   $(find_container_id) \
-  bash -c "/opt/kafka/bin/kafka-configs.sh --zookeeper zk:2181 --alter --add-config 'SCRAM-SHA-256=[iterations=8192,password=${PASSWORD_256}],SCRAM-SHA-512=[password=${PASSWORD_512}]' --entity-type users --entity-name ${USERNAME}"
+  bash -c "kafka-configs --zookeeper zookeeper:2181 --alter --add-config 'SCRAM-SHA-256=[iterations=8192,password=${PASSWORD_256}],SCRAM-SHA-512=[password=${PASSWORD_512}]' --entity-type users --entity-name ${USERNAME}"

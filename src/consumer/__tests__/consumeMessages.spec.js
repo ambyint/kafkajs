@@ -1,7 +1,10 @@
+jest.setTimeout(30000)
+
 const createProducer = require('../../producer')
 const createConsumer = require('../index')
 const { Types } = require('../../protocol/message/compression')
 const ISOLATION_LEVEL = require('../../protocol/isolationLevel')
+const sleep = require('../../utils/sleep')
 
 const {
   secureRandom,
@@ -11,6 +14,7 @@ const {
   newLogger,
   waitFor,
   waitForMessages,
+  waitForNextEvent,
   testIfKafka_0_11,
   waitForConsumerToJoinGroup,
   generateMessages,
@@ -92,6 +96,50 @@ describe('Consumer', () => {
     expect(messagesConsumed.map(m => m.message.offset)).toEqual(messages.map((_, i) => `${i}`))
   })
 
+  it('consumes messages concurrently', async () => {
+    const partitionsConsumedConcurrently = 2
+    topicName = `test-topic-${secureRandom()}`
+    await createTopic({
+      topic: topicName,
+      partitions: partitionsConsumedConcurrently + 1,
+    })
+    await consumer.connect()
+    await producer.connect()
+    await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+    let inProgress = 0
+    let hitConcurrencyLimit = false
+    consumer.on(consumer.events.START_BATCH_PROCESS, () => {
+      inProgress++
+      expect(inProgress).toBeLessThanOrEqual(partitionsConsumedConcurrently)
+      hitConcurrencyLimit = hitConcurrencyLimit || inProgress === partitionsConsumedConcurrently
+    })
+    consumer.on(consumer.events.END_BATCH_PROCESS, () => inProgress--)
+
+    const messagesConsumed = []
+    consumer.run({
+      partitionsConsumedConcurrently,
+      eachMessage: async event => {
+        await sleep(1)
+        messagesConsumed.push(event)
+      },
+    })
+
+    await waitForConsumerToJoinGroup(consumer)
+
+    const messages = Array(100)
+      .fill()
+      .map(() => {
+        const value = secureRandom()
+        return { key: `key-${value}`, value: `value-${value}` }
+      })
+
+    await producer.send({ acks: 1, topic: topicName, messages })
+    await waitForMessages(messagesConsumed, { number: messages.length })
+
+    expect(hitConcurrencyLimit).toBeTrue()
+  })
+
   it('consume GZIP messages', async () => {
     await consumer.connect()
     await producer.connect()
@@ -143,9 +191,16 @@ describe('Consumer', () => {
     const batchesConsumed = []
     const functionsExposed = []
     consumer.run({
-      eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, uncommittedOffsets }) => {
+      eachBatch: async ({
+        batch,
+        resolveOffset,
+        heartbeat,
+        isRunning,
+        isStale,
+        uncommittedOffsets,
+      }) => {
         batchesConsumed.push(batch)
-        functionsExposed.push(resolveOffset, heartbeat, isRunning, uncommittedOffsets)
+        functionsExposed.push(resolveOffset, heartbeat, isRunning, isStale, uncommittedOffsets)
       },
     })
 
@@ -179,6 +234,7 @@ describe('Consumer', () => {
     ])
 
     expect(functionsExposed).toEqual([
+      expect.any(Function),
       expect.any(Function),
       expect.any(Function),
       expect.any(Function),
@@ -414,6 +470,191 @@ describe('Consumer', () => {
     await consumer.disconnect() // don't give the consumer the chance to consume the 2nd message
 
     expect(calls).toEqual(1)
+  })
+
+  describe('discarding messages after seeking', () => {
+    it('stops consuming messages when fetched batch has gone stale', async () => {
+      consumer = createConsumer({
+        cluster: createCluster(),
+        groupId,
+        logger: newLogger(),
+
+        // make sure we fetch a batch of messages
+        minBytes: 1024,
+        maxWaitTimeInMs: 500,
+      })
+
+      const messages = Array(10)
+        .fill()
+        .map(() => {
+          const value = secureRandom()
+          return { key: `key-${value}`, value: `value-${value}` }
+        })
+
+      await consumer.connect()
+      await producer.connect()
+      await producer.send({ acks: 1, topic: topicName, messages })
+      await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+      const offsetsConsumed = []
+
+      consumer.run({
+        eachMessage: async ({ message }) => {
+          offsetsConsumed.push(message.offset)
+
+          if (offsetsConsumed.length === 1) {
+            consumer.seek({ topic: topicName, partition: 0, offset: message.offset })
+          }
+        },
+      })
+
+      await waitFor(() => offsetsConsumed.length >= 2, { delay: 50 })
+
+      expect(offsetsConsumed[0]).toEqual(offsetsConsumed[1])
+    })
+
+    it('resolves a batch as stale when seek was called while processing it', async () => {
+      consumer = createConsumer({
+        cluster: createCluster(),
+        groupId,
+        logger: newLogger(),
+
+        // make sure we fetch a batch of messages
+        minBytes: 1024,
+        maxWaitTimeInMs: 500,
+      })
+
+      const messages = Array(10)
+        .fill()
+        .map(() => {
+          const value = secureRandom()
+          return { key: `key-${value}`, value: `value-${value}` }
+        })
+
+      await consumer.connect()
+      await producer.connect()
+      await producer.send({ acks: 1, topic: topicName, messages })
+      await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+      const offsetsConsumed = []
+
+      consumer.run({
+        eachBatch: async ({ batch, isStale, heartbeat, resolveOffset }) => {
+          for (const message of batch.messages) {
+            if (isStale()) break
+
+            offsetsConsumed.push(message.offset)
+
+            if (offsetsConsumed.length === 1) {
+              consumer.seek({ topic: topicName, partition: 0, offset: message.offset })
+            }
+
+            resolveOffset(message.offset)
+            await heartbeat()
+          }
+        },
+      })
+
+      await waitFor(() => offsetsConsumed.length >= 2, { delay: 50 })
+
+      expect(offsetsConsumed[0]).toEqual(offsetsConsumed[1])
+    })
+
+    it('skips messages fetched while seek was called', async () => {
+      consumer = createConsumer({
+        cluster: createCluster(),
+        groupId,
+        maxWaitTimeInMs: 1000,
+        logger: newLogger(),
+      })
+
+      const messages = Array(10)
+        .fill()
+        .map(() => {
+          const value = secureRandom()
+          return { key: `key-${value}`, value: `value-${value}` }
+        })
+      await producer.connect()
+      await producer.send({ acks: 1, topic: topicName, messages })
+
+      await consumer.connect()
+
+      await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+      const offsetsConsumed = []
+
+      const eachBatch = async ({ batch, heartbeat }) => {
+        for (const message of batch.messages) {
+          offsetsConsumed.push(message.offset)
+        }
+
+        await heartbeat()
+      }
+
+      consumer.run({
+        eachBatch,
+      })
+
+      await waitForConsumerToJoinGroup(consumer)
+
+      await waitFor(() => offsetsConsumed.length === messages.length, { delay: 50 })
+      await waitForNextEvent(consumer, consumer.events.FETCH_START)
+
+      const seekedOffset = offsetsConsumed[Math.floor(messages.length / 2)]
+      consumer.seek({ topic: topicName, partition: 0, offset: seekedOffset })
+      await producer.send({ acks: 1, topic: topicName, messages }) // trigger completion of fetch
+
+      await waitFor(() => offsetsConsumed.length > messages.length, { delay: 50 })
+
+      expect(offsetsConsumed[messages.length]).toEqual(seekedOffset)
+    })
+  })
+
+  it('discards messages received when pausing while fetch is in-flight', async () => {
+    consumer = createConsumer({
+      cluster: createCluster(),
+      groupId,
+      maxWaitTimeInMs: 200,
+      logger: newLogger(),
+    })
+
+    const messages = Array(10)
+      .fill()
+      .map(() => {
+        const value = secureRandom()
+        return { key: `key-${value}`, value: `value-${value}` }
+      })
+    await producer.connect()
+    await producer.send({ acks: 1, topic: topicName, messages })
+
+    await consumer.connect()
+
+    await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+    const offsetsConsumed = []
+
+    const eachBatch = async ({ batch, heartbeat }) => {
+      for (const message of batch.messages) {
+        offsetsConsumed.push(message.offset)
+      }
+
+      await heartbeat()
+    }
+
+    consumer.run({
+      eachBatch,
+    })
+
+    await waitForConsumerToJoinGroup(consumer)
+    await waitFor(() => offsetsConsumed.length === messages.length, { delay: 50 })
+    await waitForNextEvent(consumer, consumer.events.FETCH_START)
+
+    consumer.pause([{ topic: topicName }])
+    await producer.send({ acks: 1, topic: topicName, messages }) // trigger completion of fetch
+
+    await waitForNextEvent(consumer, consumer.events.FETCH)
+
+    expect(offsetsConsumed.length).toEqual(messages.length)
   })
 
   describe('transactions', () => {

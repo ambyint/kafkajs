@@ -30,10 +30,8 @@ describe('Network > Connection', () => {
 
       test('rejects the Promise in case of errors', async () => {
         connection.host = invalidHost
-        await expect(connection.connect()).rejects.toHaveProperty(
-          'message',
-          'Connection error: getaddrinfo ENOTFOUND kafkajs.test kafkajs.test:9092'
-        )
+        const messagePattern = /Connection error: getaddrinfo ENOTFOUND kafkajs.test/
+        await expect(connection.connect()).rejects.toThrow(messagePattern)
         expect(connection.connected).toEqual(false)
       })
     })
@@ -58,8 +56,8 @@ describe('Network > Connection', () => {
 
       test('rejects the Promise in case of errors', async () => {
         connection.ssl.cert = 'invalid'
-        const message = 'Failed to connect: error:0906D06C:PEM routines:PEM_read_bio:no start line'
-        await expect(connection.connect()).rejects.toHaveProperty('message', message)
+        const messagePattern = /Failed to connect/
+        await expect(connection.connect()).rejects.toThrow(messagePattern)
         expect(connection.connected).toEqual(false)
       })
     })
@@ -97,7 +95,7 @@ describe('Network > Connection', () => {
     })
 
     test('rejects the Promise in case of a non-retriable error', async () => {
-      let protocol = {
+      const protocol = {
         ...apiVersions(),
         response: {
           ...apiVersions().response,
@@ -142,7 +140,9 @@ describe('Network > Connection', () => {
 
     test('respect the requestTimeout', async () => {
       const protocol = apiVersions()
-      connection = new Connection(connectionOpts({ requestTimeout: 50 }))
+      connection = new Connection(
+        connectionOpts({ requestTimeout: 50, enforceRequestTimeout: true })
+      )
       const originalProcessData = connection.processData
 
       connection.processData = async data => {
@@ -155,7 +155,7 @@ describe('Network > Connection', () => {
     })
 
     describe('Debug logging', () => {
-      let initialValue
+      let initialValue, connection
 
       beforeAll(() => {
         initialValue = process.env.KAFKAJS_DEBUG_PROTOCOL_BUFFERS
@@ -165,9 +165,15 @@ describe('Network > Connection', () => {
         process.env['KAFKAJS_DEBUG_PROTOCOL_BUFFERS'] = initialValue
       })
 
+      afterEach(async () => {
+        if (connection) {
+          await connection.disconnect()
+        }
+      })
+
       test('logs the full payload in case of non-retriable error when "KAFKAJS_DEBUG_PROTOCOL_BUFFERS" runtime flag is set', async () => {
         process.env['KAFKAJS_DEBUG_PROTOCOL_BUFFERS'] = '1'
-        const connection = new Connection(connectionOpts())
+        connection = new Connection(connectionOpts())
         const debugStub = jest.fn()
         connection.logger.debug = debugStub
         const protocol = apiVersions()
@@ -183,7 +189,7 @@ describe('Network > Connection', () => {
 
       test('filters payload in case of non-retriable error when "KAFKAJS_DEBUG_PROTOCOL_BUFFERS" runtime flag is not set', async () => {
         delete process.env['KAFKAJS_DEBUG_PROTOCOL_BUFFERS']
-        const connection = new Connection(connectionOpts())
+        connection = new Connection(connectionOpts())
         const debugStub = jest.fn()
         connection.logger.debug = debugStub
         const protocol = apiVersions()

@@ -5,13 +5,233 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](http://keepachangelog.com/en/1.0.0/)
 and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.html).
 
-## [1.4.6] - 2018-12-03
+## [1.12.0] - 2020-01-30
+### Added
+  - Force refresh of metadata when topic is not present #556
+  - Expose ConsumerRunConfig type #615
+  - Randomize order of seed brokers #632
 
+### Changed
+  - Support TLS SNI by default #512
+  - Changed typing of `logLevel` argument of `logCreator` #538
+  - Add type boolean in ssl KafkaConfig #557
+  - Allow logging Fetch response payload buffers #573
+  - Remove default null for logCreator #595
+  - Add error names to ensure error names work with webpack + uglify #602
+  - Merge TopicMessages by topic in producer sendBatch #626
+
+### Fixed
+  - Skip control records without auto-resolve #511
+  - Handle empty member assignment #567
+  - Only fetch for partitions with initialized offsets #582
+  - Get correct next offset for compacted topics #577
+  - TS type definition for removing instrumentation event listeners #608
+  - Fixed IHeaders definition to accept plain strings #547
+  - Make TS type ProducerBatch fields optional #610
+  - Fix typings for logger getters #620
+
+## [1.11.0] - 2019-09-30
+### Added
+  - Add Typescript SASLMechanism type to definitions #477
+  - Allow SASL Connections to Periodically Re-Authenticate #496
+
+### Changed
+  - Throw validation error when the broker list is empty #460
+  - Improve the encoder to avoid copying unnecessary bytes #471
+  - Throw an error on subscription changes for running consumers #470
+  - Default `throttle_time_ms` to 0 if missing in `ApiVersions` response #495
+  - Remove normalisation of the password when using SCRAM mechanism #505
+
+### Fixed
+  - Fix built-in partitioners type definition error #455
+  - Detect replaced brokers on refresh metadata #457
+  - Make NodeJS REPL get correct `randomBytes()` #462
+  - Fix `IHeaders` type definition (from string to Buffer) #467
+  - Rename Typescript definitions from `ResourceType` to `ResourceTypes` #468
+  - Update Typescript definitions to make `configNames` optional in `ResourceTypes` #474
+  - Fix `transactionState.ABORTING` value #478
+
+## [1.10.0] - 2019-07-31
+### Added
+  - Allow the consumer to pause and resume individual partitions #417
+  - Add `consumer.commitOffsets` for manual committing #436
+  - Expose consumer paused partitions #444
+
+### Changed
+  - Removed unnecessary async code #434
+  - Use SubscriptionState to track member assignment #429
+
+### Fixed
+  - Improve type compatibility with @types/kafkajs #416
+  - Fix `fetchTopicMetadata` return type #433
+
+## [1.9.3] - 2019-06-27
+### Fixed
+  - Fix AWS-IAM mechanism name #411 #412
+  - Fix TypeScript types for topic subscription with RegExp #413
+
+## [1.9.2] - 2019-06-26
+### Fixed
+  - Fix typescript types for Logger, consumer pause and resume, eachMessage and EachBatch interfaces #409
+
+## [1.9.1] - 2019-06-25
+### Fixed
+  - Fix typescript types for SSL, SASL and batch #407
+
+## [1.9.0] - 2019-06-25
+### Added
+  - Add typescript declaration file #362 #385 #390
+  - Add `requestTimeout` to apiVersions #369
+  - Discard messages saw a seek operation during a fetch or batch processing #367
+  - Include fetched offset metadata retrieved with `admin.fetchOffsets` #389
+  - Allow offset metadata to be written as part of OffsetCommit requests #392
+  - Prevent the consumption of messages for topics paused while fetch is in-flight #397
+  - Add `AWS-IAM` SASL mechanism #402
+  - Add `batch.offsetLagLow` #405
+
+### Changed
+  - Don't modify `global.crypto` #365
+  - Change log level about producer without metadata #382
+  - Update encoder to write arrays as single `Buffer.concat` where possible #394
+
+### Fixed
+  - Log error message on connection errors #400
+  - Make sure runner has connected brokers and fresh metadata before it starts #404
+
+## [1.8.1] - 2019-06-25
+### Fixed
+  - Make sure runner has connected brokers and fresh metadata before it starts #404
+
+## [1.8.0] - 2019-05-13
+### Added
+  - Add partition-aware concurrent mode for `eachMessage` #332
+  - Add `JavaCompatiblePartitioner` #358
+  - Add `consumer.subscribe({ topic: RegExp })` #346
+  - Update supported protocols to latest of Kafka 1 #343 #347 #348
+
+### Changed
+  - Add documentation link to `REBALANCE_IN_PROGRESS` error #341
+
+### Fixed
+  - Fix crash on offline replicas in metadata v5 response #350
+
+## [1.7.0] - 2019-04-12
+### Fixed
+  - Improve compatibility with terserjs #338
+
+### Added
+  - Add `admin#fetchTopicMetadata` #331
+
+### Changed
+  - Deprecated `admin#getTopicMetadata` #331
+  - `admin#fetchTopicOffsets` returns the low and high watermarks #333
+
+## [1.6.0] - 2019-04-01
+### Added
+  - Allow providing a socketFactory on client creation #263
+  - Add fetchTopicOffsets method #314
+
+## [1.5.2] - 2019-04-01
+### Fixed
+  - Process a fixed number of lock releases per iteration on `lock#release` #323
+
+### Changed
+  - Use the max between the default request timeout and the protocol override #318
+  - Only emit events if there are listeners #321
+
+## [1.5.1] - 2019-03-14
+### Fixed
+  - Handle `null` keys on isAbortMarker #312
+
+### Changed
+  - Prevent subsequent calls to `consumer#run` to override the running consumer #305
+  - Improve browser compatibility #300
+  - Add custom `requestTimeout` for protocol fetch #310
+  - Make `requestTimeout` optional, the current implementation is behind the flag `enforceRequestTimeout` #313
+
+## [1.5.0] - 2019-03-05
+### Changed
+  - See `1.5.0-beta.X` versions
+
+## [1.5.0-beta.4] - 2019-02-28
+### Fixed
+  - Abort old transactions on protocol error `CONCURRENT_TRANSACTIONS` #299
+
+## [1.5.0-beta.3] - 2019-02-20
+### Fixed
+  - Missing default restart time on crashes due to retriable errors #283
+  - Add custom requestTimeout for JoinGroup v0 #293
+  - Fix propagation of custom retry configs #295
+
+### Changed
+  - Allow calling `Producer.sendBatch` with empty list #287
+  - Encode non-buffer key as string by default #291
+
+## [1.5.0-beta.2] - 2019-02-13
+### Fixed
+  - Handle undefined message key when producing with 0.11 #247
+  - Fix consumer restart on find coordinator errors #253
+  - Crash consumer on codec not implemented error #256
+  - Fix error message on invalid username or password #270
+  - Restart consumer on crashes due to retriable error #269
+  - Remove deleted topics from the cluster target group #273
+
+### Changed
+  - Change Node engine requirement to >=8.6.0 #250
+  - Don't include lockfile and vscode files in package #264
+
+### Added
+  - Allow configuring log level at runtime #278
+
+## [1.5.0-beta.1] - 2019-01-17
+### Fixed
+  - Rolling upgrade from 0.10 to 0.11 causes unknown magic byte errors #246
+
+### Changed
+  - Validate consumer groupId #244
+
+### Added
+  - Expose network queue size event to consumers, producers and admin #245
+
+## [1.5.0-beta.0] - 2019-01-08
+### Changed
+  - Add transactional attributes to record batch #199
+  - Ignore control records #208
+  - Filter aborted messages on the consumer #223 #210 #228
+  - Make Round robin assigner forward `userdata` #231
+
+### Added
+  - Protocol `FindCoordinator` v1 #189
+  - Protocol `InitProducerId` v0 #190
+  - Protocol `AddPartitionsToTxn` v0 #191
+  - Protocol `AddOffsetsToTxn` v0 #194
+  - Protocol `TxnOffCommit` v0 #195
+  - Protocol `EndTxn` v0 #198
+  - Protocol `ListOffsets` v1 and v2 #217 #209
+  - Accept max in-flight requests on the connection #216
+  - Idempotent producer #203
+  - Transactional producer #206
+  - Protocol `SASLAuthenticate` #229
+  - Add SendOffsets to consumer `eachBatch` #232
+  - Add network instrumentation events #233
+  - Allow users to provide offsets to the `commitOffsetsIfNecessary` #235
+
+## [1.4.8] - 2019-02-18
+### Fixed
+  - Handle undefined message key when producing with 0.11 #247
+  - Fix consumer restart on find coordinator errors #253
+  - Crash consumer on codec not implemented error #256
+  - Fix error message on invalid username or password #270
+
+## [1.4.7] - 2019-01-17
+### Fixed
+  - Rolling upgrade from 0.10 to 0.11 causes unknown magic byte errors #246
+
+## [1.4.6] - 2018-12-03
 ### Fixed
   - Always assign partitions based on subscribed topics #227
 
 ## [1.4.5] - 2018-11-28
-
 ### Fixed
   - Fix crash in mitigation for receiving metadata for unsubscribed topics #221
 
@@ -19,22 +239,18 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   - Add `CRASH` instrumentation event for the consumer #221
 
 ## [1.4.4] - 2018-10-29
-
 ### Fixed
   - Protocol produce v3 wasn't filtering `undefined` timestamps and was sending timestamp 0 (`NaN` converted) for all messages #188
 
 ## [1.4.3] - 2018-10-22
-
 ### Changed
   - Version `1.4.2` without test files
 
 ## [1.4.2] - 2018-10-22
-
 ### Changed
   - Allow messages with a value of `null` to support tombstones #185
 
 ## [1.4.1] - 2018-10-17
-
 ### Fixed
   - Decode multiple RecordBatch on protocol Fetch v4 #179
   - Skip incomplete record batches #182
@@ -49,7 +265,6 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
   - Add description to lock instances #178
 
 ## [1.4.0] - 2018-10-09
-
 ### Fixed
   - Potential offset loss when updating offsets for resolved partitions #124
   - Refresh metadata on lock timeout #131

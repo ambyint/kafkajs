@@ -1,6 +1,7 @@
 const createProducer = require('../../producer')
 const createConsumer = require('../index')
 const { MemberMetadata, MemberAssignment } = require('../../consumer/assignerProtocol')
+const { KafkaJSError } = require('../../errors')
 
 const {
   secureRandom,
@@ -109,6 +110,51 @@ describe('Consumer', () => {
     ])
   })
 
+  it('recovers from crashes due to retriable errors', async () => {
+    consumer = createConsumer({
+      cluster,
+      groupId,
+      logger: newLogger(),
+      heartbeatInterval: 100,
+      maxWaitTimeInMs: 1,
+      maxBytesPerPartition: 180,
+      retry: {
+        retries: 0,
+      },
+    })
+    const crashListener = jest.fn()
+    consumer.on(consumer.events.CRASH, crashListener)
+
+    const error = new KafkaJSError(new Error('💣'), { retriable: true })
+
+    await consumer.connect()
+    await consumer.subscribe({ topic: topicName, fromBeginning: true })
+
+    const coordinator = await cluster.findGroupCoordinator({ groupId })
+    const original = coordinator.joinGroup
+    coordinator.joinGroup = async () => {
+      coordinator.joinGroup = original
+      throw error
+    }
+
+    const eachMessage = jest.fn()
+    await consumer.run({ eachMessage })
+
+    const key = secureRandom()
+    const message = { key: `key-${key}`, value: `value-${key}` }
+    await producer.send({ acks: 1, topic: topicName, messages: [message] })
+
+    await waitFor(() => crashListener.mock.calls.length > 0)
+    expect(crashListener).toHaveBeenCalledWith({
+      id: expect.any(Number),
+      timestamp: expect.any(Number),
+      type: 'consumer.crash',
+      payload: { error, groupId },
+    })
+
+    await expect(waitFor(() => eachMessage.mock.calls.length)).resolves.toBe(1)
+  })
+
   describe('when eachMessage throws an error', () => {
     let key1, key3
 
@@ -175,6 +221,7 @@ describe('Consumer', () => {
       })
 
       expect(offsets).toEqual({
+        throttleTime: 0,
         errorCode: 0,
         responses: [
           {
@@ -236,7 +283,7 @@ describe('Consumer', () => {
       let raisedError = false
       consumer.run({
         eachBatch: async ({ batch, resolveOffset }) => {
-          for (let message of batch.messages) {
+          for (const message of batch.messages) {
             if (message.key.toString() === `key-${key3}`) {
               raisedError = true
               throw new Error('some error')
@@ -260,6 +307,7 @@ describe('Consumer', () => {
       })
 
       expect(offsets).toEqual({
+        throttleTime: 0,
         errorCode: 0,
         responses: [
           {

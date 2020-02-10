@@ -1,30 +1,27 @@
 const fs = require('fs')
-const ip = require('ip')
 const execa = require('execa')
 const uuid = require('uuid/v4')
+const semver = require('semver')
 const crypto = require('crypto')
 const Cluster = require('../src/cluster')
 const waitFor = require('../src/utils/waitFor')
 const connectionBuilder = require('../src/cluster/connectionBuilder')
 const Connection = require('../src/network/connection')
+const defaultSocketFactory = require('../src/network/socketFactory')
+const socketFactory = defaultSocketFactory()
 
 const {
   createLogger,
-  LEVELS: { NOTHING, INFO, DEBUG },
+  LEVELS: { NOTHING },
 } = require('../src/loggers')
 
 const LoggerConsole = require('../src/loggers/console')
-const Kafka = require('../src/index')
-
-const isTravis = process.env.TRAVIS === 'true'
-const travisLevel = process.env.VERBOSE ? DEBUG : INFO
+const { Kafka } = require('../index')
 
 const newLogger = (opts = {}) =>
-  createLogger(
-    Object.assign({ level: isTravis ? travisLevel : NOTHING, logCreator: LoggerConsole }, opts)
-  )
+  createLogger(Object.assign({ level: NOTHING, logCreator: LoggerConsole }, opts))
 
-const getHost = () => process.env.HOST_IP || ip.address()
+const getHost = () => 'localhost'
 const secureRandom = (length = 10) =>
   `${crypto.randomBytes(length).toString('hex')}-${process.pid}-${uuid()}`
 
@@ -33,6 +30,7 @@ const sslBrokers = (host = getHost()) => [`${host}:9093`, `${host}:9096`, `${hos
 const saslBrokers = (host = getHost()) => [`${host}:9094`, `${host}:9097`, `${host}:9100`]
 
 const connectionOpts = (opts = {}) => ({
+  socketFactory,
   clientId: `test-${secureRandom()}`,
   connectionTimeout: 3000,
   logger: newLogger(),
@@ -67,7 +65,7 @@ const saslSCRAM256ConnectionOpts = () =>
     sasl: {
       mechanism: 'scram-sha-256',
       username: 'testscram',
-      password: 'testtestscram256',
+      password: 'testtestscram=256',
     },
   })
 
@@ -77,7 +75,7 @@ const saslSCRAM512ConnectionOpts = () =>
     sasl: {
       mechanism: 'scram-sha-512',
       username: 'testscram',
-      password: 'testtestscram512',
+      password: 'testtestscram=512',
     },
   })
 
@@ -86,6 +84,7 @@ const createConnection = (opts = {}) => new Connection(Object.assign(connectionO
 const createConnectionBuilder = (opts = {}, brokers = plainTextBrokers()) => {
   const { ssl, sasl, clientId } = Object.assign(connectionOpts(), opts)
   return connectionBuilder({
+    socketFactory,
     logger: newLogger(),
     brokers,
     ssl,
@@ -125,16 +124,38 @@ const retryProtocol = (errorType, fn) =>
 const waitForMessages = (buffer, { number = 1, delay = 50 } = {}) =>
   waitFor(() => (buffer.length >= number ? buffer : false), { delay, ignoreTimeout: true })
 
-const waitForConsumerToJoinGroup = (consumer, { maxWait = 10000 } = {}) =>
+const waitForNextEvent = (consumer, eventName, { maxWait = 10000 } = {}) =>
   new Promise((resolve, reject) => {
-    const timeoutId = setTimeout(() => reject(new Error('Timeout')), maxWait)
-    consumer.on(consumer.events.GROUP_JOIN, event => {
+    const timeoutId = setTimeout(
+      () => reject(new Error(`Timeout waiting for '${eventName}'`)),
+      maxWait
+    )
+    consumer.on(eventName, event => {
       clearTimeout(timeoutId)
       resolve(event)
     })
     consumer.on(consumer.events.CRASH, event => {
       clearTimeout(timeoutId)
       reject(event.payload.error)
+    })
+  })
+
+const waitForConsumerToJoinGroup = (consumer, { maxWait = 10000, label = '' } = {}) =>
+  new Promise((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      consumer.disconnect().then(() => {
+        reject(new Error(`Timeout ${label}`.trim()))
+      })
+    }, maxWait)
+    consumer.on(consumer.events.GROUP_JOIN, event => {
+      clearTimeout(timeoutId)
+      resolve(event)
+    })
+    consumer.on(consumer.events.CRASH, event => {
+      clearTimeout(timeoutId)
+      consumer.disconnect().then(() => {
+        reject(event.payload.error)
+      })
     })
   })
 
@@ -160,7 +181,7 @@ const addPartitions = async ({ topic, partitions }) => {
   await cluster.connect()
   await cluster.addTargetTopic(topic)
 
-  execa.shellSync(cmd)
+  execa.commandSync(cmd, { shell: true })
 
   waitFor(async () => {
     await cluster.refreshMetadata()
@@ -170,8 +191,7 @@ const addPartitions = async ({ topic, partitions }) => {
 }
 
 const testIfKafkaVersion = version => (description, callback, testFn = test) => {
-  const kafkaVersions = process.env.KAFKA_VERSION.split(/\s*,\s*/)
-  return kafkaVersions.includes(version)
+  return semver.gte(semver.coerce(process.env.KAFKA_VERSION), semver.coerce(version))
     ? testFn(description, callback)
     : test.skip(description, callback)
 }
@@ -224,6 +244,7 @@ module.exports = {
   createTopic,
   waitFor: testWaitFor,
   waitForMessages,
+  waitForNextEvent,
   waitForConsumerToJoinGroup,
   testIfKafka_0_11,
   testIfKafka_1_1_0,

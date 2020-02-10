@@ -29,7 +29,7 @@ module.exports = ({ logger, cluster, partitioner, eosManager, idempotent, retrie
    * @returns {Promise}
    */
   const sendBatch = async ({ acks = -1, timeout, compression, topicMessages = [] }) => {
-    if (topicMessages.length === 0 || topicMessages.some(({ topic }) => !topic)) {
+    if (topicMessages.some(({ topic }) => !topic)) {
       throw new KafkaJSNonRetriableError(`Invalid topic`)
     }
 
@@ -39,7 +39,7 @@ module.exports = ({ logger, cluster, partitioner, eosManager, idempotent, retrie
       )
     }
 
-    for (let { topic, messages } of topicMessages) {
+    for (const { topic, messages } of topicMessages) {
       if (!messages) {
         throw new KafkaJSNonRetriableError(
           `Invalid messages array [${messages}] for topic "${topic}"`
@@ -56,13 +56,25 @@ module.exports = ({ logger, cluster, partitioner, eosManager, idempotent, retrie
       }
     }
 
+    const mergedTopicMessages = topicMessages.reduce((merged, { topic, messages }) => {
+      const index = merged.findIndex(({ topic: mergedTopic }) => topic === mergedTopic)
+
+      if (index === -1) {
+        merged.push({ topic, messages })
+      } else {
+        merged[index].messages = [...merged[index].messages, ...messages]
+      }
+
+      return merged
+    }, [])
+
     return retrier(async (bail, retryCount, retryTime) => {
       try {
         return await sendMessages({
           acks,
           timeout,
           compression,
-          topicMessages,
+          topicMessages: mergedTopicMessages,
         })
       } catch (error) {
         if (!cluster.isConnected()) {

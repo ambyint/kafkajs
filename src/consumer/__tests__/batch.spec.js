@@ -119,4 +119,68 @@ describe('Consumer > Batch', () => {
       expect(batch.offsetLag()).toEqual('0')
     })
   })
+
+  describe('#offsetLagLow', () => {
+    it('returns the difference between highWatermark - 1 and the first offset', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [{ offset: '3' }, { offset: '4' }],
+      })
+
+      expect(batch.offsetLagLow()).toEqual('96')
+    })
+
+    it('returns 0 when the batch is empty', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [],
+      })
+
+      expect(batch.offsetLagLow()).toEqual('0')
+    })
+  })
+
+  describe('#isEmptyControlRecord', () => {
+    it('returns false for regular batches', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [{ offset: '3' }, { offset: '4' }],
+      })
+
+      expect(batch.isEmptyControlRecord()).toEqual(false)
+    })
+
+    it('returns false for regular empty batches', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [],
+      })
+
+      expect(batch.isEmptyControlRecord()).toEqual(false)
+    })
+
+    it('returns false if there is a control record but some messages are available', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [{ offset: '3' }, { offset: '4' }, { isControlRecord: true, offset: '5' }],
+      })
+
+      expect(batch.isEmptyControlRecord()).toEqual(false)
+    })
+
+    it('returns true if the batch only contains a control record', () => {
+      const batch = new Batch(topic, 0, {
+        partition: 0,
+        highWatermark: '100',
+        messages: [{ isControlRecord: true, offset: '5' }],
+      })
+
+      expect(batch.isEmptyControlRecord()).toEqual(true)
+    })
+  })
 })

@@ -29,19 +29,23 @@ const requestInfo = ({ apiName, apiKey, apiVersion }) =>
  *                              retry module inside network
  * @param {number} [maxInFlightRequests=null] The maximum number of unacknowledged requests on a connection before
  *                                            enqueuing
+ * @param {InstrumentationEventEmitter} [instrumentationEmitter=null]
  */
 module.exports = class Connection {
   constructor({
     host,
     port,
     logger,
+    socketFactory,
     rack = null,
     ssl = null,
     sasl = null,
     clientId = 'kafkajs',
     connectionTimeout = 1000,
     requestTimeout = 30000,
+    enforceRequestTimeout = false,
     maxInFlightRequests = null,
+    instrumentationEmitter = null,
     retry = {},
   }) {
     this.host = host
@@ -51,6 +55,7 @@ module.exports = class Connection {
     this.broker = `${this.host}:${this.port}`
     this.logger = logger.namespace('Connection')
 
+    this.socketFactory = socketFactory
     this.ssl = ssl
     this.sasl = sasl
 
@@ -63,8 +68,10 @@ module.exports = class Connection {
     this.connected = false
     this.correlationId = 0
     this.requestQueue = new RequestQueue({
+      instrumentationEmitter,
       maxInFlightRequests,
       requestTimeout,
+      enforceRequestTimeout,
       clientId,
       broker: this.broker,
       logger: logger.namespace('RequestQueue'),
@@ -80,7 +87,11 @@ module.exports = class Connection {
 
     this.logDebug = log('debug')
     this.logError = log('error')
-    this.shouldLogBuffers = getEnv().KAFKAJS_DEBUG_PROTOCOL_BUFFERS === '1'
+
+    const env = getEnv()
+    this.shouldLogBuffers = env.KAFKAJS_DEBUG_PROTOCOL_BUFFERS === '1'
+    this.shouldLogFetchBuffer =
+      this.shouldLogBuffers && env.KAFKAJS_DEBUG_EXTENDED_PROTOCOL_BUFFERS === '1'
   }
 
   /**
@@ -157,6 +168,7 @@ module.exports = class Connection {
       try {
         timeoutId = setTimeout(onTimeout, this.connectionTimeout)
         this.socket = createSocket({
+          socketFactory: this.socketFactory,
           host: this.host,
           port: this.port,
           ssl: this.ssl,
@@ -167,6 +179,7 @@ module.exports = class Connection {
           onTimeout,
         })
       } catch (e) {
+        clearTimeout(timeoutId)
         reject(
           new KafkaJSConnectionError(`Failed to connect: ${e.message}`, {
             broker: `${this.host}:${this.port}`,
@@ -199,6 +212,12 @@ module.exports = class Connection {
    */
   authenticate({ authExpectResponse = false, request, response }) {
     this.authExpectResponse = authExpectResponse
+
+    /**
+     * TODO: rewrite removing the async promise executor
+     */
+
+    /* eslint-disable no-async-promise-executor */
     return new Promise(async (resolve, reject) => {
       this.authHandlers = {
         onSuccess: rawData => {
@@ -209,6 +228,7 @@ module.exports = class Connection {
             .decode(rawData)
             .then(data => response.parse(data))
             .then(resolve)
+            .catch(reject)
         },
         onError: () => {
           this.authHandlers = null
@@ -222,10 +242,14 @@ module.exports = class Connection {
         },
       }
 
-      const requestPayload = await request.encode()
+      try {
+        const requestPayload = await request.encode()
 
-      this.failIfNotConnected()
-      this.socket.write(requestPayload.buffer, 'binary')
+        this.failIfNotConnected()
+        this.socket.write(requestPayload.buffer, 'binary')
+      } catch (e) {
+        reject(e)
+      }
     })
   }
 
@@ -234,11 +258,14 @@ module.exports = class Connection {
    * @param {object} request It is defined by the protocol and consists of an object with "apiKey",
    *                         "apiVersion", "apiName" and an "encode" function. The encode function
    *                         must return an instance of Encoder
+   *
    * @param {object} response It is defined by the protocol and consists of an object with two functions:
    *                          "decode" and "parse"
+   *
+   * @param {number} [requestTimeout=null] Override for the default requestTimeout
    * @returns {Promise<data>} where data is the return of "response#parse"
    */
-  async send({ request, response }) {
+  async send({ request, response, requestTimeout = null }) {
     this.failIfNotConnected()
 
     const expectResponse = !request.expectResponse || request.expectResponse()
@@ -262,6 +289,7 @@ module.exports = class Connection {
           this.requestQueue.push({
             entry,
             expectResponse,
+            requestTimeout,
             sendRequest: () => {
               this.socket.write(requestPayload.buffer, 'binary')
             },
@@ -285,7 +313,7 @@ module.exports = class Connection {
       this.logDebug(`Response ${requestInfo(entry)}`, {
         correlationId,
         size,
-        data: isFetchApi ? '[filtered]' : data,
+        data: isFetchApi && !this.shouldLogFetchBuffer ? '[filtered]' : data,
       })
 
       return data

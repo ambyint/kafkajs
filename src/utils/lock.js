@@ -28,7 +28,7 @@ module.exports = class Lock {
         return resolve()
       }
 
-      let timeoutId
+      let timeoutId = null
       const tryToAcquire = async () => {
         if (!this[PRIVATE.LOCKED]) {
           this[PRIVATE.LOCKED] = true
@@ -48,7 +48,10 @@ module.exports = class Lock {
 
   async release() {
     this[PRIVATE.LOCKED] = false
-    const waitingForLock = Array.from(this[PRIVATE.WAITING])
-    return Promise.all(waitingForLock.map(acquireLock => acquireLock()))
+    const waitingLock = this[PRIVATE.WAITING].values().next().value
+
+    if (waitingLock) {
+      return waitingLock()
+    }
   }
 }

@@ -1,4 +1,9 @@
 const SocketRequest = require('./socketRequest')
+const events = require('../instrumentationEvents')
+
+const PRIVATE = {
+  EMIT_QUEUE_SIZE_EVENT: Symbol('private:RequestQueue:emitQueueSizeEvent'),
+}
 
 module.exports = class RequestQueue {
   /**
@@ -7,16 +12,36 @@ module.exports = class RequestQueue {
    * @param {string} clientId
    * @param {string} broker
    * @param {Logger} logger
+   * @param {InstrumentationEventEmitter} [instrumentationEmitter=null]
    */
-  constructor({ maxInFlightRequests, requestTimeout, clientId, broker, logger }) {
+  constructor({
+    instrumentationEmitter = null,
+    maxInFlightRequests,
+    requestTimeout,
+    enforceRequestTimeout,
+    clientId,
+    broker,
+    logger,
+  }) {
+    this.instrumentationEmitter = instrumentationEmitter
     this.maxInFlightRequests = maxInFlightRequests
     this.requestTimeout = requestTimeout
+    this.enforceRequestTimeout = enforceRequestTimeout
     this.clientId = clientId
     this.broker = broker
     this.logger = logger
 
     this.inflight = new Map()
     this.pending = []
+
+    this[PRIVATE.EMIT_QUEUE_SIZE_EVENT] = () => {
+      instrumentationEmitter &&
+        instrumentationEmitter.emit(events.NETWORK_REQUEST_QUEUE_SIZE, {
+          broker: this.broker,
+          clientId: this.clientId,
+          queueSize: this.pending.length,
+        })
+    }
   }
 
   /**
@@ -24,17 +49,28 @@ module.exports = class RequestQueue {
    * @property {RequestEntry} entry
    * @property {boolean} expectResponse
    * @property {Function} sendRequest
+   * @property {number} [requestTimeout]
    *
    * @public
    * @param {PushedRequest} pushedRequest
    */
   push(pushedRequest) {
     const { correlationId } = pushedRequest.entry
+    const defaultRequestTimeout = this.requestTimeout
+    const customRequestTimeout = pushedRequest.requestTimeout
+
+    // Some protocol requests have custom request timeouts (e.g JoinGroup, Fetch, etc). The custom
+    // timeouts are influenced by user configurations, which can be lower than the default requestTimeout
+    const requestTimeout = Math.max(defaultRequestTimeout, customRequestTimeout || 0)
+
     const socketRequest = new SocketRequest({
       entry: pushedRequest.entry,
       expectResponse: pushedRequest.expectResponse,
       broker: this.broker,
-      requestTimeout: this.requestTimeout,
+      clientId: this.clientId,
+      instrumentationEmitter: this.instrumentationEmitter,
+      enforceRequestTimeout: this.enforceRequestTimeout,
+      requestTimeout,
       send: () => {
         this.inflight.set(correlationId, socketRequest)
         pushedRequest.sendRequest()
@@ -52,13 +88,15 @@ module.exports = class RequestQueue {
       this.maxInFlightRequests != null && this.inflight.size >= this.maxInFlightRequests
 
     if (shouldEnqueue) {
+      this.pending.push(socketRequest)
+
       this.logger.debug(`Request enqueued`, {
         clientId: this.clientId,
         broker: this.broker,
         correlationId,
       })
 
-      this.pending.push(socketRequest)
+      this[PRIVATE.EMIT_QUEUE_SIZE_EVENT]()
       return
     }
 
@@ -96,6 +134,8 @@ module.exports = class RequestQueue {
         pendingDuration: pendingRequest.pendingDuration,
         currentPendingQueueSize: this.pending.length,
       })
+
+      this[PRIVATE.EMIT_QUEUE_SIZE_EVENT]()
     }
 
     this.inflight.delete(correlationId)
@@ -120,12 +160,13 @@ module.exports = class RequestQueue {
   rejectAll(error) {
     const requests = [...this.inflight.values(), ...this.pending]
 
-    for (let socketRequest of requests) {
+    for (const socketRequest of requests) {
       socketRequest.rejected(error)
       this.inflight.delete(socketRequest.correlationId)
     }
 
     this.pending = []
     this.inflight.clear()
+    this[PRIVATE.EMIT_QUEUE_SIZE_EVENT]()
   }
 }

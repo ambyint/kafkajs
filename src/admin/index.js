@@ -2,11 +2,12 @@ const createRetry = require('../retry')
 const waitFor = require('../utils/waitFor')
 const createConsumer = require('../consumer')
 const InstrumentationEventEmitter = require('../instrumentation/emitter')
-const events = require('./instrumentationEvents')
-const { CONNECT, DISCONNECT } = require('./instrumentationEvents')
+const { events, wrap: wrapEvent, unwrap: unwrapEvent } = require('./instrumentationEvents')
 const { LEVELS } = require('../loggers')
 const { KafkaJSNonRetriableError } = require('../errors')
 const RESOURCE_TYPES = require('../protocol/resourceTypes')
+
+const { CONNECT, DISCONNECT } = events
 
 const { values, keys } = Object
 const eventNames = values(events)
@@ -40,9 +41,14 @@ const findTopicPartitions = async (cluster, topic) => {
     .sort()
 }
 
-module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
+module.exports = ({
+  logger: rootLogger,
+  instrumentationEmitter: rootInstrumentationEmitter,
+  retry = { retries: 5 },
+  cluster,
+}) => {
   const logger = rootLogger.namespace('Admin')
-  const instrumentationEmitter = new InstrumentationEventEmitter()
+  const instrumentationEmitter = rootInstrumentationEmitter || new InstrumentationEventEmitter()
 
   /**
    * @returns {Promise}
@@ -118,7 +124,7 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
   }
 
   /**
-   * @param {array<string>} topics
+   * @param {string[]} topics
    * @param {number} [timeout=5000]
    * @return {Promise}
    */
@@ -135,11 +141,18 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
 
     return retrier(async (bail, retryCount, retryTime) => {
       try {
-        await cluster.refreshMetadata(topics)
+        await cluster.refreshMetadata()
         const broker = await cluster.findControllerBroker()
         await broker.deleteTopics({ topics, timeout })
+
+        // Remove deleted topics
+        for (const topic of topics) {
+          cluster.targetTopics.delete(topic)
+        }
+
+        await cluster.refreshMetadata()
       } catch (e) {
-        if (e.type === 'NOT_CONTROLLER') {
+        if (['NOT_CONTROLLER', 'UNKNOWN_TOPIC_OR_PARTITION'].includes(e.type)) {
           logger.warn('Could not delete topics', { error: e.message, retryCount, retryTime })
           throw e
         }
@@ -153,6 +166,59 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
               retryTime,
             }
           )
+        }
+
+        bail(e)
+      }
+    })
+  }
+
+  /**
+   * @param {string} topic
+   */
+
+  const fetchTopicOffsets = async topic => {
+    if (!topic || typeof topic !== 'string') {
+      throw new KafkaJSNonRetriableError(`Invalid topic ${topic}`)
+    }
+
+    const retrier = createRetry(retry)
+
+    return retrier(async (bail, retryCount, retryTime) => {
+      try {
+        await cluster.addTargetTopic(topic)
+        await cluster.refreshMetadataIfNecessary()
+
+        const metadata = cluster.findTopicPartitionMetadata(topic)
+        const high = await cluster.fetchTopicsOffset([
+          {
+            topic,
+            fromBeginning: false,
+            partitions: metadata.map(p => ({ partition: p.partitionId })),
+          },
+        ])
+
+        const low = await cluster.fetchTopicsOffset([
+          {
+            topic,
+            fromBeginning: true,
+            partitions: metadata.map(p => ({ partition: p.partitionId })),
+          },
+        ])
+
+        const { partitions: highPartitions } = high.pop()
+        const { partitions: lowPartitions } = low.pop()
+        return highPartitions.map(({ partition, offset }) => ({
+          partition,
+          offset,
+          high: offset,
+          low: lowPartitions.find(({ partition: lowPartition }) => lowPartition === partition)
+            .offset,
+        }))
+      } catch (e) {
+        if (e.type === 'UNKNOWN_TOPIC_OR_PARTITION') {
+          await cluster.refreshMetadata()
+          throw e
         }
 
         bail(e)
@@ -185,7 +251,13 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
 
     return responses
       .filter(response => response.topic === topic)
-      .map(({ partitions }) => partitions.map(({ partition, offset }) => ({ partition, offset })))
+      .map(({ partitions }) =>
+        partitions.map(({ partition, offset, metadata }) => ({
+          partition,
+          offset,
+          metadata: metadata || null,
+        }))
+      )
       .pop()
   }
 
@@ -269,7 +341,7 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
       // This consumer doesn't need to consume any data
       consumer.pause([{ topic }])
 
-      for (let seekData of partitions) {
+      for (const seekData of partitions) {
         consumer.seek({ topic, ...seekData })
       }
     })
@@ -277,6 +349,7 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
 
   /**
    * @param {Array<ResourceConfigQuery>} resources
+   * @param {boolean} [includeSynonyms=false]
    * @return {Promise}
    *
    * @typedef {Object} ResourceConfigQuery
@@ -284,7 +357,7 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
    * @property {string} name
    * @property {Array<String>} [configNames=[]]
    */
-  const describeConfigs = async ({ resources }) => {
+  const describeConfigs = async ({ resources, includeSynonyms }) => {
     if (!resources || !Array.isArray(resources)) {
       throw new KafkaJSNonRetriableError(`Invalid resources array ${resources}`)
     }
@@ -327,7 +400,7 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
       try {
         await cluster.refreshMetadata()
         const broker = await cluster.findControllerBroker()
-        const response = await broker.describeConfigs({ resources })
+        const response = await broker.describeConfigs({ resources, includeSynonyms })
         return response
       } catch (e) {
         if (e.type === 'NOT_CONTROLLER') {
@@ -419,13 +492,17 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
   }
 
   /**
+   * @deprecated - This method was replaced by `fetchTopicMetadata`. This implementation
+   * is limited by the topics in the target group, so it can't fetch all topics when
+   * necessary.
+   *
    * Fetch metadata for provided topics.
    *
    * If no topics are provided fetch metadata for all topics of which we are aware.
    * @see https://kafka.apache.org/protocol#The_Messages_Metadata
    *
    * @param {Object} [options]
-   * @param {Array<string>} [options.topics]
+   * @param {string[]} [options.topics]
    * @return {Promise<TopicsMetadata>}
    *
    * @typedef {Object} TopicsMetadata
@@ -476,6 +553,49 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
   }
 
   /**
+   * Fetch metadata for provided topics.
+   *
+   * If no topics are provided fetch metadata for all topics.
+   * @see https://kafka.apache.org/protocol#The_Messages_Metadata
+   *
+   * @param {Object} [options]
+   * @param {string[]} [options.topics]
+   * @return {Promise<TopicsMetadata>}
+   *
+   * @typedef {Object} TopicsMetadata
+   * @property {Array<TopicMetadata>} topics
+   *
+   * @typedef {Object} TopicMetadata
+   * @property {String} name
+   * @property {Array<PartitionMetadata>} partitions
+   *
+   * @typedef {Object} PartitionMetadata
+   * @property {number} partitionErrorCode Response error code
+   * @property {number} partitionId Topic partition id
+   * @property {number} leader  The id of the broker acting as leader for this partition.
+   * @property {Array<number>} replicas The set of all nodes that host this partition.
+   * @property {Array<number>} isr The set of nodes that are in sync with the leader for this partition.
+   */
+  const fetchTopicMetadata = async ({ topics = [] } = {}) => {
+    if (topics) {
+      topics.forEach(topic => {
+        if (!topic || typeof topic !== 'string') {
+          throw new KafkaJSNonRetriableError(`Invalid topic ${topic}`)
+        }
+      })
+    }
+
+    const metadata = await cluster.metadata({ topics })
+
+    return {
+      topics: metadata.topicMetadata.map(topicMetadata => ({
+        name: topicMetadata.topic,
+        partitions: topicMetadata.partitionMetadata,
+      })),
+    }
+  }
+
+  /**
    * @param {string} eventName
    * @param {Function} listener
    * @return {Function}
@@ -485,7 +605,8 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
       throw new KafkaJSNonRetriableError(`Event name should be one of ${eventKeys}`)
     }
 
-    return instrumentationEmitter.addListener(eventName, event => {
+    return instrumentationEmitter.addListener(unwrapEvent(eventName), event => {
+      event.type = wrapEvent(event.type)
       Promise.resolve(listener(event)).catch(e => {
         logger.error(`Failed to execute listener: ${e.message}`, {
           eventName,
@@ -506,8 +627,10 @@ module.exports = ({ retry = { retries: 5 }, logger: rootLogger, cluster }) => {
     createTopics,
     deleteTopics,
     getTopicMetadata,
+    fetchTopicMetadata,
     events,
     fetchOffsets,
+    fetchTopicOffsets,
     setOffsets,
     resetOffsets,
     describeConfigs,

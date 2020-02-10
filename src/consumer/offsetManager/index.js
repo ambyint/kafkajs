@@ -2,7 +2,9 @@ const Long = require('long')
 const flatten = require('../../utils/flatten')
 const isInvalidOffset = require('./isInvalidOffset')
 const initializeConsumerOffsets = require('./initializeConsumerOffsets')
-const { COMMIT_OFFSETS } = require('../instrumentationEvents')
+const {
+  events: { COMMIT_OFFSETS },
+} = require('../instrumentationEvents')
 
 const { keys, assign } = Object
 const indexTopics = topics => topics.reduce((obj, topic) => assign(obj, { [topic]: {} }), {})
@@ -232,9 +234,9 @@ module.exports = class OffsetManager {
     return { topics: topicsWithPartitionsToCommit }
   }
 
-  async commitOffsets() {
+  async commitOffsets(offsets = {}) {
     const { groupId, generationId, memberId } = this
-    const { topics } = this.uncommittedOffsets()
+    const { topics = this.uncommittedOffsets().topics } = offsets
 
     if (topics.length === 0) {
       this.lastCommit = Date.now()
@@ -248,20 +250,30 @@ module.exports = class OffsetManager {
       topics,
     }
 
-    const coordinator = await this.getCoordinator()
-    await coordinator.offsetCommit(payload)
-    this.instrumentationEmitter.emit(COMMIT_OFFSETS, payload)
+    try {
+      const coordinator = await this.getCoordinator()
+      await coordinator.offsetCommit(payload)
+      this.instrumentationEmitter.emit(COMMIT_OFFSETS, payload)
 
-    // Update local reference of committed offsets
-    topics.forEach(({ topic, partitions }) => {
-      const updatedOffsets = partitions.reduce(
-        (obj, { partition, offset }) => assign(obj, { [partition]: offset }),
-        {}
-      )
-      assign(this.committedOffsets()[topic], updatedOffsets)
-    })
+      // Update local reference of committed offsets
+      topics.forEach(({ topic, partitions }) => {
+        const updatedOffsets = partitions.reduce(
+          (obj, { partition, offset }) => assign(obj, { [partition]: offset }),
+          {}
+        )
+        assign(this.committedOffsets()[topic], updatedOffsets)
+      })
 
-    this.lastCommit = Date.now()
+      this.lastCommit = Date.now()
+    } catch (e) {
+      // metadata is stale, the coordinator has changed due to a restart or
+      // broker reassignment
+      if (e.type === 'NOT_COORDINATOR_FOR_GROUP') {
+        await this.cluster.refreshMetadata()
+      }
+
+      throw e
+    }
   }
 
   async resolveOffsets() {

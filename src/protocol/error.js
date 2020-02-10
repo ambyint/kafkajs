@@ -1,4 +1,5 @@
 const { KafkaJSProtocolError } = require('../errors')
+const websiteUrl = require('../utils/websiteUrl')
 
 const errorCodes = [
   {
@@ -174,6 +175,7 @@ const errorCodes = [
     code: 27,
     retriable: false,
     message: 'The group is rebalancing, so a rejoin is needed',
+    helpUrl: websiteUrl('docs/faq', 'what-does-it-mean-to-get-rebalance-in-progress-errors'),
   },
   {
     type: 'INVALID_COMMIT_OFFSET_SIZE',
@@ -372,6 +374,7 @@ const errorCodes = [
     code: 58,
     retriable: false,
     message: 'SASL Authentication failed',
+    helpUrl: websiteUrl('docs/configuration', 'sasl'),
   },
   {
     type: 'UNKNOWN_PRODUCER_ID',
@@ -483,6 +486,39 @@ const errorCodes = [
     code: 76,
     retriable: false,
     message: 'The requesting client does not support the compression type of given partition',
+  },
+  {
+    type: 'STALE_BROKER_EPOCH',
+    code: 77,
+    retriable: false,
+    message: 'Broker epoch has changed',
+  },
+  {
+    type: 'OFFSET_NOT_AVAILABLE',
+    code: 78,
+    retriable: true,
+    message:
+      'The leader high watermark has not caught up from a recent leader election so the offsets cannot be guaranteed to be monotonically increasing',
+  },
+  {
+    type: 'MEMBER_ID_REQUIRED',
+    code: 79,
+    retriable: false,
+    message:
+      'The group member needs to have a valid member id before actually entering a consumer group',
+  },
+  {
+    type: 'PREFERRED_LEADER_NOT_AVAILABLE',
+    code: 80,
+    retriable: true,
+    message: 'The preferred leader was not available',
+  },
+  {
+    type: 'GROUP_MAX_SIZE_REACHED',
+    code: 81,
+    retriable: false,
+    message:
+      'The consumer group has reached its max size. It already has the configured maximum number of members',
   },
 ]
 

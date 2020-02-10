@@ -18,7 +18,7 @@ const ISOLATION_LEVEL = require('../../protocol/isolationLevel')
 const minBytes = 1
 const maxBytes = 10485760 // 10MB
 const maxBytesPerPartition = 1048576 // 1MB
-const maxWaitTime = 5
+const maxWaitTime = 100
 const timestamp = 1509827900073
 
 describe('Broker > Fetch', () => {
@@ -296,6 +296,8 @@ describe('Broker > Fetch', () => {
       let fetchResponse = await broker.fetch({ maxWaitTime, minBytes, maxBytes, topics })
       expect(fetchResponse).toEqual({
         throttleTime: 0,
+        errorCode: 0,
+        sessionId: 0,
         responses: [
           {
             topicName,
@@ -305,6 +307,7 @@ describe('Broker > Fetch', () => {
                 errorCode: 0,
                 highWatermark: '3',
                 lastStableOffset: '3',
+                lastStartOffset: '0',
                 partition: 0,
                 messages: [
                   {
@@ -375,6 +378,8 @@ describe('Broker > Fetch', () => {
       let fetchResponse = await broker.fetch({ maxWaitTime, minBytes, maxBytes, topics })
       expect(fetchResponse).toEqual({
         throttleTime: 0,
+        errorCode: 0,
+        sessionId: 0,
         responses: [
           {
             topicName,
@@ -384,6 +389,7 @@ describe('Broker > Fetch', () => {
                 errorCode: 0,
                 highWatermark: '3',
                 lastStableOffset: '3',
+                lastStartOffset: '0',
                 partition: 0,
                 messages: [
                   {
@@ -454,6 +460,8 @@ describe('Broker > Fetch', () => {
       let fetchResponse = await broker.fetch({ maxWaitTime, minBytes, maxBytes, topics })
       expect(fetchResponse).toEqual({
         throttleTime: 0,
+        errorCode: 0,
+        sessionId: 0,
         responses: [
           {
             topicName,
@@ -463,6 +471,7 @@ describe('Broker > Fetch', () => {
                 errorCode: 0,
                 highWatermark: '3',
                 lastStableOffset: '3',
+                lastStartOffset: '0',
                 partition: 0,
                 messages: [
                   {
@@ -566,6 +575,8 @@ describe('Broker > Fetch', () => {
         let fetchResponse = await broker.fetch({ maxWaitTime, minBytes, maxBytes, topics })
         expect(fetchResponse).toEqual({
           throttleTime: 0,
+          errorCode: 0,
+          sessionId: 0,
           responses: [
             {
               topicName,
@@ -573,6 +584,7 @@ describe('Broker > Fetch', () => {
                 {
                   abortedTransactions: [],
                   lastStableOffset: '0',
+                  lastStartOffset: '0',
                   errorCode: 0,
                   highWatermark: '3',
                   partition: 0,
@@ -594,6 +606,8 @@ describe('Broker > Fetch', () => {
           fetchResponse = await broker.fetch({ maxWaitTime, minBytes, maxBytes, topics })
           expect(fetchResponse).toEqual({
             throttleTime: 0,
+            errorCode: 0,
+            sessionId: 0,
             responses: [
               {
                 topicName,
@@ -608,6 +622,7 @@ describe('Broker > Fetch', () => {
                     errorCode: 0,
                     highWatermark: '4', // Number of produced messages + 1 control record
                     lastStableOffset: '4',
+                    lastStartOffset: '0',
                     partition: 0,
                     messages: [
                       {
@@ -719,6 +734,8 @@ describe('Broker > Fetch', () => {
         })
         expect(fetchResponse).toEqual({
           throttleTime: 0,
+          errorCode: 0,
+          sessionId: 0,
           responses: [
             {
               topicName,
@@ -727,7 +744,12 @@ describe('Broker > Fetch', () => {
                   abortedTransactions: [], // None of these messages have been aborted yet
                   errorCode: 0,
                   highWatermark: '3', // Number of produced messages
-                  lastStableOffset: '-1', // None
+                  // The end offset of a partition for a read_committed consumer would be the
+                  // offset of the first message in the partition belonging to an open transaction.
+                  //
+                  // Note: In version < 2 this was '-1'
+                  lastStableOffset: '0',
+                  lastStartOffset: '0',
                   partition: 0,
                   messages: [
                     {
@@ -784,6 +806,8 @@ describe('Broker > Fetch', () => {
 
         await txn.abort()
 
+        // Although the messages are aborted, they will still be there in the log,
+        // so the offset will still increase
         topics[0].partitions[0].fetchOffset = 3
 
         // It appears there can be a delay between the EndTxn response
@@ -801,6 +825,8 @@ describe('Broker > Fetch', () => {
           })
           expect(fetchResponse).toEqual({
             throttleTime: 0,
+            errorCode: 0,
+            sessionId: 0,
             responses: [
               {
                 topicName,
@@ -809,7 +835,8 @@ describe('Broker > Fetch', () => {
                     abortedTransactions: [],
                     errorCode: 0,
                     highWatermark: '4',
-                    lastStableOffset: '-1',
+                    lastStableOffset: '4',
+                    lastStartOffset: '0',
                     partition: 0,
                     messages: [
                       // Control record

@@ -26,28 +26,37 @@ const mergeTopics = (obj, { topic, partitions }) => ({
  * @param {string} clientId
  * @param {number} connectionTimeout - in milliseconds
  * @param {number} authenticationTimeout - in milliseconds
+ * @param {number} reauthenticationThreshold - in milliseconds
+ * @param {number} requestTimeout - in milliseconds
  * @param {number} metadataMaxAge - in milliseconds
  * @param {boolean} allowAutoTopicCreation
  * @param {number} maxInFlightRequests
+ * @param {IsolationLevel} isolationLevel
  * @param {Object} retry
- * @param {Object} logger
+ * @param {Logger} logger
  * @param {Map} offsets
+ * @param {InstrumentationEventEmitter} [instrumentationEmitter=null]
  */
 module.exports = class Cluster {
   constructor({
     logger: rootLogger,
+    socketFactory,
     brokers,
     ssl,
     sasl,
     clientId,
     connectionTimeout,
     authenticationTimeout,
+    reauthenticationThreshold,
+    requestTimeout,
+    enforceRequestTimeout,
     metadataMaxAge,
     retry,
     allowExperimentalV011,
     allowAutoTopicCreation,
     maxInFlightRequests,
     isolationLevel,
+    instrumentationEmitter = null,
     offsets = new Map(),
   }) {
     this.rootLogger = rootLogger
@@ -55,11 +64,15 @@ module.exports = class Cluster {
     this.retrier = createRetry({ ...retry })
     this.connectionBuilder = connectionBuilder({
       logger: rootLogger,
+      instrumentationEmitter,
+      socketFactory,
       brokers,
       ssl,
       sasl,
       clientId,
       connectionTimeout,
+      requestTimeout,
+      enforceRequestTimeout,
       maxInFlightRequests,
       retry,
     })
@@ -73,6 +86,7 @@ module.exports = class Cluster {
       allowExperimentalV011,
       allowAutoTopicCreation,
       authenticationTimeout,
+      reauthenticationThreshold,
       metadataMaxAge,
     })
     this.committedOffsetsByGroup = offsets
@@ -116,12 +130,43 @@ module.exports = class Cluster {
 
   /**
    * @public
+   * @returns {Promise<Metadata>}
+   */
+  async metadata({ topics = [] } = {}) {
+    return this.retrier(async (bail, retryCount, retryTime) => {
+      try {
+        await this.brokerPool.refreshMetadataIfNecessary(topics)
+        return this.brokerPool.withBroker(async ({ broker }) => broker.metadata(topics))
+      } catch (e) {
+        if (e.type === 'LEADER_NOT_AVAILABLE') {
+          throw e
+        }
+
+        bail(e)
+      }
+    })
+  }
+
+  /**
+   * @public
    * @param {string} topic
    * @return {Promise}
    */
   async addTargetTopic(topic) {
+    return this.addMultipleTargetTopics([topic])
+  }
+
+  /**
+   * @public
+   * @param {string[]} topics
+   * @return {Promise}
+   */
+  async addMultipleTargetTopics(topics) {
     const previousSize = this.targetTopics.size
-    this.targetTopics.add(topic)
+    for (const topic of topics) {
+      this.targetTopics.add(topic)
+    }
+
     const hasChanged = previousSize !== this.targetTopics.size || !this.brokerPool.metadata
 
     if (hasChanged) {
@@ -139,7 +184,11 @@ module.exports = class Cluster {
       return await this.brokerPool.findBroker({ nodeId })
     } catch (e) {
       // The client probably has stale metadata
-      if (e.name === 'KafkaJSLockTimeout' || e.code === 'ECONNREFUSED') {
+      if (
+        e.name === 'KafkaJSBrokerNotFound' ||
+        e.name === 'KafkaJSLockTimeout' ||
+        e.code === 'ECONNREFUSED'
+      ) {
         await this.refreshMetadata()
       }
 
@@ -249,6 +298,13 @@ module.exports = class Cluster {
           throw e
         }
 
+        if (e.code === 'ECONNREFUSED') {
+          // During maintenance the current coordinator can go down; findBroker will
+          // refresh metadata and re-throw the error. findGroupCoordinator has to re-throw
+          // the error to go through the retry cycle.
+          throw e
+        }
+
         bail(e)
       }
     })
@@ -338,7 +394,7 @@ module.exports = class Cluster {
     }
 
     // Index all topics and partitions per leader (nodeId)
-    for (let topicData of topics) {
+    for (const topicData of topics) {
       const { topic, partitions, fromBeginning } = topicData
       const partitionsPerLeader = this.findLeaderForPartitions(
         topic,

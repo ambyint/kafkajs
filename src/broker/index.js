@@ -1,9 +1,14 @@
+const Long = require('long')
 const Lock = require('../utils/lock')
 const { Types: Compression } = require('../protocol/message/compression')
 const { requests, lookup } = require('../protocol/requests')
 const { KafkaJSNonRetriableError } = require('../errors')
 const apiKeys = require('../protocol/requests/apiKeys')
 const SASLAuthenticator = require('./saslAuthenticator')
+
+const PRIVATE = {
+  SHOULD_REAUTHENTICATE: Symbol('private:Broker:shouldReauthenticate'),
+}
 
 /**
  * Each node in a Kafka cluster is called broker. This class contains
@@ -27,6 +32,7 @@ module.exports = class Broker {
     nodeId = null,
     versions = null,
     authenticationTimeout = 1000,
+    reauthenticationThreshold = 10000,
     allowAutoTopicCreation = true,
     supportAuthenticationProtocol = null,
   }) {
@@ -37,11 +43,16 @@ module.exports = class Broker {
     this.versions = versions
     this.allowExperimentalV011 = allowExperimentalV011
     this.authenticationTimeout = authenticationTimeout
+    this.reauthenticationThreshold = reauthenticationThreshold
     this.allowAutoTopicCreation = allowAutoTopicCreation
     this.supportAuthenticationProtocol = supportAuthenticationProtocol
-    this.authenticated = false
 
-    const lockTimeout = this.connection.connectionTimeout + this.authenticationTimeout
+    this.authenticatedAt = null
+    this.sessionLifetime = Long.ZERO
+
+    // The lock timeout has twice the connectionTimeout because the same timeout is used
+    // for the first apiVersions call
+    const lockTimeout = 2 * this.connection.connectionTimeout + this.authenticationTimeout
     this.brokerAddress = `${this.connection.host}:${this.connection.port}`
 
     this.lock = new Lock({
@@ -60,7 +71,8 @@ module.exports = class Broker {
    */
   isConnected() {
     const { connected, sasl } = this.connection
-    return sasl ? connected && this.authenticated : connected
+    const isAuthenticated = this.authenticatedAt != null && !this[PRIVATE.SHOULD_REAUTHENTICATE]()
+    return sasl ? connected && isAuthenticated : connected
   }
 
   /**
@@ -70,12 +82,11 @@ module.exports = class Broker {
   async connect() {
     try {
       await this.lock.acquire()
-
       if (this.isConnected()) {
         return
       }
 
-      this.authenticated = false
+      this.authenticatedAt = null
       await this.connection.connect()
 
       if (!this.versions) {
@@ -98,7 +109,7 @@ module.exports = class Broker {
         })
       }
 
-      if (!this.authenticated && this.connection.sasl) {
+      if (this.authenticatedAt == null && this.connection.sasl) {
         const authenticator = new SASLAuthenticator(
           this.connection,
           this.rootLogger,
@@ -107,7 +118,8 @@ module.exports = class Broker {
         )
 
         await authenticator.authenticate()
-        this.authenticated = true
+        this.authenticatedAt = process.hrtime()
+        this.sessionLifetime = Long.fromValue(authenticator.sessionLifetime)
       }
     } finally {
       await this.lock.release()
@@ -119,7 +131,7 @@ module.exports = class Broker {
    * @returns {Promise}
    */
   async disconnect() {
-    this.authenticated = false
+    this.authenticatedAt = null
     await this.connection.disconnect()
   }
 
@@ -135,10 +147,13 @@ module.exports = class Broker {
       .reverse()
 
     // Find the best version implemented by the server
-    for (let candidateVersion of availableVersions) {
+    for (const candidateVersion of availableVersions) {
       try {
         const apiVersions = requests.ApiVersions.protocol({ version: candidateVersion })
-        response = await this.connection.send(apiVersions())
+        response = await this.connection.send({
+          ...apiVersions(),
+          requestTimeout: this.connection.connectionTimeout,
+        })
         break
       } catch (e) {
         if (e.type !== 'UNSUPPORTED_VERSION') {
@@ -316,6 +331,8 @@ module.exports = class Broker {
    * @param {string} groupId The unique group id
    * @param {number} sessionTimeout The coordinator considers the consumer dead if it receives
    *                                no heartbeat after this timeout in ms
+   * @param {number} rebalanceTimeout The maximum time that the coordinator will wait for each member
+   *                                  to rejoin when rebalancing the group
    * @param {string} [memberId=""] The assigned consumer id or an empty string for a new consumer
    * @param {string} [protocolType="consumer"] Unique name for class of protocols implemented by group
    * @param {Array} groupProtocols List of protocols that the member supports (assignment strategy)
@@ -325,16 +342,17 @@ module.exports = class Broker {
   async joinGroup({
     groupId,
     sessionTimeout,
+    rebalanceTimeout,
     memberId = '',
     protocolType = 'consumer',
     groupProtocols,
   }) {
-    // TODO: validate groupId and sessionTimeout (maybe default for sessionTimeout)
     const joinGroup = this.lookupRequest(apiKeys.JoinGroup, requests.JoinGroup)
     return await this.connection.send(
       joinGroup({
         groupId,
         sessionTimeout,
+        rebalanceTimeout,
         memberId,
         protocolType,
         groupProtocols,
@@ -396,7 +414,7 @@ module.exports = class Broker {
 
     // ListOffsets >= v1 will return a single `offset` rather than an array of `offsets` (ListOffsets V0).
     // Normalize to just return `offset`.
-    for (let response of result.responses) {
+    for (const response of result.responses) {
       response.partitions = response.partitions.map(({ offsets, ...partitionData }) => {
         return offsets ? { ...partitionData, offset: offsets.pop() } : partitionData
       })
@@ -439,7 +457,7 @@ module.exports = class Broker {
   /**
    * @public
    * @param {string} groupId
-   * @param {object} topics e.g:
+   * @param {object} topics - If the topic array is null fetch offsets for all topics. e.g:
    *                  [
    *                    {
    *                      topic: 'topic-name',
@@ -507,11 +525,12 @@ module.exports = class Broker {
    *                                   name: 'topic-name',
    *                                   configNames: ['compression.type', 'retention.ms']
    *                                 }]
+   * @param {boolean} [includeSynonyms=false]
    * @returns {Promise}
    */
-  async describeConfigs({ resources }) {
+  async describeConfigs({ resources, includeSynonyms = false }) {
     const describeConfigs = this.lookupRequest(apiKeys.DescribeConfigs, requests.DescribeConfigs)
-    return await this.connection.send(describeConfigs({ resources }))
+    return await this.connection.send(describeConfigs({ resources, includeSynonyms }))
   }
 
   /**
@@ -640,5 +659,26 @@ module.exports = class Broker {
     return await this.connection.send(
       endTxn({ transactionalId, producerId, producerEpoch, transactionResult })
     )
+  }
+
+  /***
+   * @private
+   */
+  [PRIVATE.SHOULD_REAUTHENTICATE]() {
+    if (this.sessionLifetime.equals(Long.ZERO)) {
+      return false
+    }
+
+    if (this.authenticatedAt == null) {
+      return true
+    }
+
+    const [secondsSince, remainingNanosSince] = process.hrtime(this.authenticatedAt)
+    const millisSince = Long.fromValue(secondsSince)
+      .multiply(1000)
+      .add(Long.fromValue(remainingNanosSince).divide(1000000))
+
+    const reauthenticateAt = millisSince.add(this.reauthenticationThreshold)
+    return reauthenticateAt.greaterThanOrEqual(this.sessionLifetime)
   }
 }

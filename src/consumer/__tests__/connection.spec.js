@@ -1,8 +1,5 @@
 const createProducer = require('../../producer')
 const createConsumer = require('../index')
-const {
-  LEVELS: { DEBUG },
-} = require('../../loggers')
 
 const {
   secureRandom,
@@ -101,7 +98,7 @@ describe('Consumer', () => {
       groupId,
       maxWaitTimeInMs: 1,
       maxBytesPerPartition: 180,
-      logger: newLogger({ level: DEBUG }),
+      logger: newLogger(),
       retry: { retries: 3 },
     })
 
@@ -115,7 +112,7 @@ describe('Consumer', () => {
     await producer.connect()
     await consumer.subscribe({ topic: topicName, fromBeginning: true })
 
-    let messages = []
+    const messages = []
     consumer.run({
       eachMessage: async ({ message }) => {
         messages.push(message)

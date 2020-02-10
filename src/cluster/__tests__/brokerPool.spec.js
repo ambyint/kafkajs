@@ -109,14 +109,14 @@ describe('Cluster > BrokerPool', () => {
       await brokerPool.refreshMetadata([topicName])
       const brokers = Object.values(brokerPool.brokers)
 
-      for (let broker of brokers) {
+      for (const broker of brokers) {
         await brokerPool.connectBroker(broker)
       }
 
       expect(brokerPool.hasConnectedBrokers()).toEqual(true)
       await brokerPool.disconnect()
 
-      for (let broker of brokers) {
+      for (const broker of brokers) {
         expect(broker.isConnected()).toEqual(false)
       }
     })
@@ -229,13 +229,61 @@ describe('Cluster > BrokerPool', () => {
       await brokerPool.refreshMetadata([topicName])
       expect(brokerPool.metadata).not.toEqual(null)
     })
+
+    describe('when replacing nodeIds with different host/port/rack', () => {
+      let lastBroker
+
+      beforeEach(async () => {
+        await brokerPool.refreshMetadata([topicName])
+        lastBroker = brokerPool.brokers[Object.keys(brokerPool.brokers).length - 1]
+        jest.spyOn(brokerPool, 'findConnectedBroker').mockImplementation(() => lastBroker)
+      })
+
+      it('replaces the broker when the host change', async () => {
+        jest.spyOn(lastBroker, 'metadata').mockImplementationOnce(() => ({
+          ...brokerPool.metadata,
+          brokers: brokerPool.metadata.brokers.map(broker =>
+            broker.nodeId === 0 ? { ...broker, host: '0.0.0.0' } : broker
+          ),
+        }))
+
+        await brokerPool.refreshMetadata([topicName])
+        expect(brokerPool.brokers[0].connection.host).toEqual('0.0.0.0')
+      })
+
+      it('replaces the broker when the port change', async () => {
+        jest.spyOn(lastBroker, 'metadata').mockImplementationOnce(() => ({
+          ...brokerPool.metadata,
+          brokers: brokerPool.metadata.brokers.map(broker =>
+            broker.nodeId === 0 ? { ...broker, port: 4321 } : broker
+          ),
+        }))
+
+        await brokerPool.refreshMetadata([topicName])
+        expect(brokerPool.brokers[0].connection.port).toEqual(4321)
+      })
+
+      it('replaces the broker when the rack change', async () => {
+        jest.spyOn(lastBroker, 'metadata').mockImplementationOnce(() => ({
+          ...brokerPool.metadata,
+          brokers: brokerPool.metadata.brokers.map(broker =>
+            broker.nodeId === 0 ? { ...broker, rack: 'south-1' } : broker
+          ),
+        }))
+
+        await brokerPool.refreshMetadata([topicName])
+        expect(brokerPool.brokers[0].connection.rack).toEqual('south-1')
+      })
+    })
   })
 
   describe('#refreshMetadataIfNecessary', () => {
     beforeEach(() => {
       brokerPool.refreshMetadata = jest.fn()
       brokerPool.metadataMaxAge = 1
-      brokerPool.metadata = {}
+      brokerPool.metadata = {
+        topicMetadata: [],
+      }
     })
 
     it('calls refreshMetadata if metadataExpireAt is not defined', async () => {
@@ -244,7 +292,7 @@ describe('Cluster > BrokerPool', () => {
       expect(brokerPool.refreshMetadata).toHaveBeenCalledWith([topicName])
     })
 
-    it('calls refreshMetadata if metadata is not present', async () => {
+    it('calls refreshMetadata if metadata is not initialized', async () => {
       brokerPool.metadataExpireAt = Date.now() + 1000
       brokerPool.metadata = null
       await brokerPool.refreshMetadataIfNecessary([topicName])
@@ -257,8 +305,21 @@ describe('Cluster > BrokerPool', () => {
       expect(brokerPool.refreshMetadata).toHaveBeenCalledWith([topicName])
     })
 
+    it('calls refreshMetadata if metadata is not present', async () => {
+      brokerPool.metadataExpireAt = Date.now() + 1000
+      await brokerPool.refreshMetadataIfNecessary([topicName])
+      expect(brokerPool.refreshMetadata).toHaveBeenCalledWith([topicName])
+    })
+
     it('does not call refreshMetadata if metadata is valid and up to date', async () => {
       brokerPool.metadataExpireAt = Date.now() + 1000
+      brokerPool.metadata = {
+        topicMetadata: [
+          {
+            topic: topicName,
+          },
+        ],
+      }
       await brokerPool.refreshMetadataIfNecessary([topicName])
       expect(brokerPool.refreshMetadata).not.toHaveBeenCalled()
     })
@@ -354,7 +415,7 @@ describe('Cluster > BrokerPool', () => {
     })
 
     it('returns a known broker connecting it in the process', async () => {
-      for (let broker of Object.values(brokerPool.brokers)) {
+      for (const broker of Object.values(brokerPool.brokers)) {
         await broker.disconnect()
       }
 

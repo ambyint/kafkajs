@@ -18,7 +18,7 @@ describe('Consumer', () => {
     topics = [`test-topic-${secureRandom()}`, `test-topic-${secureRandom()}`]
     groupId = `consumer-group-id-${secureRandom()}`
 
-    for (let topic of topics) {
+    for (const topic of topics) {
       await createTopic({ topic, partitions: 2 })
     }
 
@@ -41,6 +41,12 @@ describe('Consumer', () => {
   afterEach(async () => {
     consumer && (await consumer.disconnect())
     producer && (await producer.disconnect())
+  })
+
+  describe('#paused', () => {
+    it('returns an empty array if consumer#run has not been called', () => {
+      expect(consumer.paused()).toEqual([])
+    })
   })
 
   describe('when pausing', () => {
@@ -67,7 +73,7 @@ describe('Consumer', () => {
       const key2 = secureRandom()
       const message2 = { key: `key-${key2}`, value: `value-${key2}`, partition: 1 }
 
-      for (let topic of topics) {
+      for (const topic of topics) {
         await producer.send({ acks: 1, topic, messages: [message1] })
         await consumer.subscribe({ topic, fromBeginning: true })
       }
@@ -78,10 +84,11 @@ describe('Consumer', () => {
       await waitForConsumerToJoinGroup(consumer)
       await waitForMessages(messagesConsumed, { number: 2 })
 
+      expect(consumer.paused()).toEqual([])
       const [pausedTopic, activeTopic] = topics
       consumer.pause([{ topic: pausedTopic }])
 
-      for (let topic of topics) {
+      for (const topic of topics) {
         await producer.send({ acks: 1, topic, messages: [message2] })
       }
 
@@ -108,6 +115,75 @@ describe('Consumer', () => {
           topic: activeTopic,
           partition: 1,
           message: expect.objectContaining({ offset: '0' }),
+        },
+      ])
+
+      expect(consumer.paused()).toEqual([
+        {
+          topic: pausedTopic,
+          partitions: [0, 1],
+        },
+      ])
+    })
+
+    it('does not fetch messages for the paused partitions', async () => {
+      await consumer.connect()
+      await producer.connect()
+
+      const [topic] = topics
+      const partitions = [0, 1]
+
+      const messages = Array(1)
+        .fill()
+        .map(() => {
+          const value = secureRandom()
+          return { key: `key-${value}`, value: `value-${value}` }
+        })
+      const forPartition = partition => message => ({ ...message, partition })
+
+      for (const partition of partitions) {
+        await producer.send({ acks: 1, topic, messages: messages.map(forPartition(partition)) })
+      }
+      await consumer.subscribe({ topic, fromBeginning: true })
+
+      const messagesConsumed = []
+      consumer.run({ eachMessage: async event => messagesConsumed.push(event) })
+
+      await waitForConsumerToJoinGroup(consumer)
+      await waitForMessages(messagesConsumed, { number: messages.length * partitions.length })
+
+      expect(consumer.paused()).toEqual([])
+      const [pausedPartition, activePartition] = partitions
+      consumer.pause([{ topic, partitions: [pausedPartition] }])
+
+      for (const partition of partitions) {
+        await producer.send({ acks: 1, topic, messages: messages.map(forPartition(partition)) })
+      }
+
+      const consumedMessages = await waitForMessages(messagesConsumed, {
+        number: messages.length * 3,
+      })
+
+      expect(consumedMessages.filter(({ partition }) => partition === pausedPartition)).toEqual(
+        messages.map((message, i) => ({
+          topic,
+          partition: pausedPartition,
+          message: expect.objectContaining({ offset: `${i}` }),
+        }))
+      )
+
+      expect(consumedMessages.filter(({ partition }) => partition !== pausedPartition)).toEqual(
+        messages.concat(messages).map((message, i) => ({
+          topic,
+          partition: activePartition,
+          message: expect.objectContaining({ offset: `${i}` }),
+        }))
+      )
+
+      expect(consumer.paused()).toEqual([
+        {
+          topic,
+          partitions: [pausedPartition],
         },
       ])
     })
@@ -169,7 +245,7 @@ describe('Consumer', () => {
       const key = secureRandom()
       const message = { key: `key-${key}`, value: `value-${key}`, partition: 0 }
 
-      for (let topic of topics) {
+      for (const topic of topics) {
         await consumer.subscribe({ topic, fromBeginning: true })
       }
 
@@ -179,9 +255,9 @@ describe('Consumer', () => {
       const [pausedTopic, activeTopic] = topics
       consumer.pause([{ topic: pausedTopic }])
 
-      waitForConsumerToJoinGroup(consumer)
+      await waitForConsumerToJoinGroup(consumer)
 
-      for (let topic of topics) {
+      for (const topic of topics) {
         await producer.send({ acks: 1, topic, messages: [message] })
       }
 
@@ -201,6 +277,70 @@ describe('Consumer', () => {
           message: expect.objectContaining({ offset: '0' }),
         },
       ])
+
+      expect(consumer.paused()).toEqual([])
+    })
+
+    it('resumes fetching from earlier paused partitions', async () => {
+      await consumer.connect()
+      await producer.connect()
+
+      const [topic] = topics
+      const partitions = [0, 1]
+
+      const messages = Array(1)
+        .fill()
+        .map(() => {
+          const value = secureRandom()
+          return { key: `key-${value}`, value: `value-${value}` }
+        })
+      const forPartition = partition => message => ({ ...message, partition })
+
+      for (const partition of partitions) {
+        await producer.send({ acks: 1, topic, messages: messages.map(forPartition(partition)) })
+      }
+      await consumer.subscribe({ topic, fromBeginning: true })
+
+      const messagesConsumed = []
+      consumer.run({ eachMessage: async event => messagesConsumed.push(event) })
+
+      await waitForConsumerToJoinGroup(consumer)
+      await waitForMessages(messagesConsumed, { number: messages.length * partitions.length })
+
+      const [pausedPartition, activePartition] = partitions
+      consumer.pause([{ topic, partitions: [pausedPartition] }])
+
+      for (const partition of partitions) {
+        await producer.send({ acks: 1, topic, messages: messages.map(forPartition(partition)) })
+      }
+
+      await waitForMessages(messagesConsumed, {
+        number: messages.length * 3,
+      })
+
+      consumer.resume([{ topic, partitions: [pausedPartition] }])
+
+      const consumedMessages = await waitForMessages(messagesConsumed, {
+        number: messages.length * 4,
+      })
+
+      expect(consumedMessages.filter(({ partition }) => partition === pausedPartition)).toEqual(
+        messages.concat(messages).map((message, i) => ({
+          topic,
+          partition: pausedPartition,
+          message: expect.objectContaining({ offset: `${i}` }),
+        }))
+      )
+
+      expect(consumedMessages.filter(({ partition }) => partition !== pausedPartition)).toEqual(
+        messages.concat(messages).map((message, i) => ({
+          topic,
+          partition: activePartition,
+          message: expect.objectContaining({ offset: `${i}` }),
+        }))
+      )
+
+      expect(consumer.paused()).toEqual([])
     })
   })
 })

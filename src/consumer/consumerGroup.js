@@ -1,11 +1,16 @@
 const flatten = require('../utils/flatten')
 const sleep = require('../utils/sleep')
+const BufferedAsyncIterator = require('../utils/bufferedAsyncIterator')
+const websiteUrl = require('../utils/websiteUrl')
 const arrayDiff = require('../utils/arrayDiff')
+
 const OffsetManager = require('./offsetManager')
 const Batch = require('./batch')
 const SeekOffsets = require('./seekOffsets')
 const SubscriptionState = require('./subscriptionState')
-const { HEARTBEAT } = require('./instrumentationEvents')
+const {
+  events: { HEARTBEAT },
+} = require('./instrumentationEvents')
 const { MemberAssignment } = require('./assignerProtocol')
 const {
   KafkaJSError,
@@ -31,6 +36,7 @@ module.exports = class ConsumerGroup {
     instrumentationEmitter,
     assigners,
     sessionTimeout,
+    rebalanceTimeout,
     maxBytesPerPartition,
     minBytes,
     maxBytes,
@@ -48,6 +54,7 @@ module.exports = class ConsumerGroup {
     this.instrumentationEmitter = instrumentationEmitter
     this.assigners = assigners
     this.sessionTimeout = sessionTimeout
+    this.rebalanceTimeout = rebalanceTimeout
     this.maxBytesPerPartition = maxBytesPerPartition
     this.minBytes = minBytes
     this.maxBytes = maxBytes
@@ -65,7 +72,6 @@ module.exports = class ConsumerGroup {
     this.groupProtocol = null
 
     this.partitionsPerSubscribedTopic = null
-    this.memberAssignment = null
     this.offsetManager = null
     this.subscriptionState = new SubscriptionState()
 
@@ -76,14 +82,20 @@ module.exports = class ConsumerGroup {
     return this.leaderId && this.memberId === this.leaderId
   }
 
+  async connect() {
+    await this.cluster.connect()
+    await this.cluster.refreshMetadataIfNecessary()
+  }
+
   async join() {
-    const { groupId, sessionTimeout } = this
+    const { groupId, sessionTimeout, rebalanceTimeout } = this
 
     this.coordinator = await this.cluster.findGroupCoordinator({ groupId })
 
     const groupData = await this.coordinator.joinGroup({
       groupId,
       sessionTimeout,
+      rebalanceTimeout,
       memberId: this.memberId || '',
       groupProtocols: this.assigners.map(assigner => assigner.protocol({ topics: this.topics })),
     })
@@ -147,7 +159,9 @@ module.exports = class ConsumerGroup {
       groupAssignment: assignment,
     })
 
-    const decodedAssignment = MemberAssignment.decode(memberAssignment).assignment
+    const decodedMemberAssignment = MemberAssignment.decode(memberAssignment)
+    const decodedAssignment =
+      decodedMemberAssignment != null ? decodedMemberAssignment.assignment : {}
     this.logger.debug('Received assignment', {
       groupId,
       generationId,
@@ -155,8 +169,7 @@ module.exports = class ConsumerGroup {
       memberAssignment: decodedAssignment,
     })
 
-    let currentMemberAssignment = decodedAssignment
-    const assignedTopics = keys(currentMemberAssignment)
+    const assignedTopics = keys(decodedAssignment)
     const topicsNotSubscribed = arrayDiff(assignedTopics, topicsSubscribed)
 
     if (topicsNotSubscribed.length > 0) {
@@ -167,20 +180,23 @@ module.exports = class ConsumerGroup {
         assignedTopics,
         topicsSubscribed,
         topicsNotSubscribed,
+        helpUrl: websiteUrl(
+          'docs/faq',
+          'why-am-i-receiving-messages-for-topics-i-m-not-subscribed-to'
+        ),
       })
-
-      // Remove unsubscribed topics from the list
-      const safeAssignment = arrayDiff(assignedTopics, topicsNotSubscribed)
-      currentMemberAssignment = safeAssignment.reduce(
-        (assignment, topic) => ({ ...assignment, [topic]: decodedAssignment[topic] }),
-        {}
-      )
     }
 
+    // Remove unsubscribed topics from the list
+    const safeAssignment = arrayDiff(assignedTopics, topicsNotSubscribed)
+    const currentMemberAssignment = safeAssignment.map(topic => ({
+      topic,
+      partitions: decodedAssignment[topic],
+    }))
+
     // Check if the consumer is aware of all assigned partitions
-    const safeAssignedTopics = keys(currentMemberAssignment)
-    for (let topic of safeAssignedTopics) {
-      const assignedPartitions = currentMemberAssignment[topic]
+    for (const assignment of currentMemberAssignment) {
+      const { topic, partitions: assignedPartitions } = assignment
       const knownPartitions = this.partitionsPerSubscribedTopic.get(topic)
       const isAwareOfAllAssignedPartitions = assignedPartitions.every(partition =>
         knownPartitions.includes(partition)
@@ -205,13 +221,19 @@ module.exports = class ConsumerGroup {
       }
     }
 
-    this.memberAssignment = currentMemberAssignment
-    this.topics = keys(this.memberAssignment)
+    this.topics = currentMemberAssignment.map(({ topic }) => topic)
+    this.subscriptionState.assign(currentMemberAssignment)
     this.offsetManager = new OffsetManager({
       cluster: this.cluster,
       topicConfigurations: this.topicConfigurations,
       instrumentationEmitter: this.instrumentationEmitter,
-      memberAssignment: this.memberAssignment,
+      memberAssignment: currentMemberAssignment.reduce(
+        (partitionsByTopic, { topic, partitions }) => ({
+          ...partitionsByTopic,
+          [topic]: partitions,
+        }),
+        {}
+      ),
       autoCommitInterval: this.autoCommitInterval,
       autoCommitThreshold: this.autoCommitThreshold,
       coordinator,
@@ -242,18 +264,22 @@ module.exports = class ConsumerGroup {
     this.seekOffset.set(topic, partition, offset)
   }
 
-  pause(topics) {
-    this.logger.info(`Pausing fetching from ${topics.length} topics`, {
-      topics,
+  pause(topicPartitions) {
+    this.logger.info(`Pausing fetching from ${topicPartitions.length} topics`, {
+      topicPartitions,
     })
-    this.subscriptionState.pause(topics)
+    this.subscriptionState.pause(topicPartitions)
   }
 
-  resume(topics) {
-    this.logger.info(`Resuming fetching from ${topics.length} topics`, {
-      topics,
+  resume(topicPartitions) {
+    this.logger.info(`Resuming fetching from ${topicPartitions.length} topics`, {
+      topicPartitions,
     })
-    this.subscriptionState.resume(topics)
+    this.subscriptionState.resume(topicPartitions)
+  }
+
+  assigned() {
+    return this.subscriptionState.assigned()
   }
 
   paused() {
@@ -264,8 +290,8 @@ module.exports = class ConsumerGroup {
     await this.offsetManager.commitOffsetsIfNecessary()
   }
 
-  async commitOffsets() {
-    await this.offsetManager.commitOffsets()
+  async commitOffsets(offsets) {
+    await this.offsetManager.commitOffsets(offsets)
   }
 
   uncommittedOffsets() {
@@ -275,14 +301,15 @@ module.exports = class ConsumerGroup {
   async heartbeat({ interval }) {
     const { groupId, generationId, memberId } = this
     const now = Date.now()
-    if (now >= this.lastRequest + interval) {
+
+    if (memberId && now >= this.lastRequest + interval) {
       const payload = {
         groupId,
         memberId,
         groupGenerationId: generationId,
       }
-      await this.coordinator.heartbeat(payload)
 
+      await this.coordinator.heartbeat(payload)
       this.instrumentationEmitter.emit(HEARTBEAT, payload)
       this.lastRequest = Date.now()
     }
@@ -306,45 +333,74 @@ module.exports = class ConsumerGroup {
         await this.offsetManager.seek(seekEntry)
       }
 
-      await this.offsetManager.resolveOffsets()
+      const pausedTopicPartitions = this.subscriptionState.paused()
+      const activeTopicPartitions = this.subscriptionState.active()
 
-      const pausedTopics = this.subscriptionState.paused()
-      const activeTopics = topics.filter(topic => !pausedTopics.includes(topic))
+      const activePartitions = flatten(activeTopicPartitions.map(({ partitions }) => partitions))
+      const activeTopics = activeTopicPartitions
+        .filter(({ partitions }) => partitions.length > 0)
+        .map(({ topic }) => topic)
 
-      if (activeTopics.length === 0) {
-        this.logger.debug(`No active topics, sleeping for ${this.maxWaitTime}ms`, {
+      if (activePartitions.length === 0) {
+        this.logger.debug(`No active topic partitions, sleeping for ${this.maxWaitTime}ms`, {
           topics,
-          activeTopics,
-          pausedTopics,
+          activeTopicPartitions,
+          pausedTopicPartitions,
         })
 
         await sleep(this.maxWaitTime)
         return []
       }
 
-      this.logger.debug(`Fetching from ${activeTopics.length} out of ${topics.length} topics`, {
-        topics,
-        activeTopics,
-        pausedTopics,
-      })
+      await this.offsetManager.resolveOffsets()
 
-      for (let topic of activeTopics) {
+      this.logger.debug(
+        `Fetching from ${activePartitions.length} partitions for ${activeTopics.length} out of ${topics.length} topics`,
+        {
+          topics,
+          activeTopicPartitions,
+          pausedTopicPartitions,
+        }
+      )
+
+      for (const topicPartition of activeTopicPartitions) {
         const partitionsPerLeader = this.cluster.findLeaderForPartitions(
-          topic,
-          this.memberAssignment[topic]
+          topicPartition.topic,
+          topicPartition.partitions
         )
 
         const leaders = keys(partitionsPerLeader)
+        const committedOffsets = this.offsetManager.committedOffsets()
 
-        for (let leader of leaders) {
-          const partitions = partitionsPerLeader[leader].map(partition => ({
-            partition,
-            fetchOffset: this.offsetManager.nextOffset(topic, partition).toString(),
-            maxBytes: maxBytesPerPartition,
-          }))
+        for (const leader of leaders) {
+          const partitions = partitionsPerLeader[leader]
+            .filter(partition => {
+              /**
+               * When recovering from OffsetOutOfRange, each partition can recover
+               * concurrently, which invalidates resolved and committed offsets as part
+               * of the recovery mechanism (see OffsetManager.clearOffsets). In concurrent
+               * scenarios this can initiate a new fetch with invalid offsets.
+               *
+               * This was further highlighted by https://github.com/tulios/kafkajs/pull/570,
+               * which increased concurrency, making this more likely to happen.
+               *
+               * This is solved by only making requests for partitions with initialized offsets.
+               *
+               * See the following pull request which explains the context of the problem:
+               * @issue https://github.com/tulios/kafkajs/pull/578
+               */
+              return committedOffsets[topicPartition.topic][partition] != null
+            })
+            .map(partition => ({
+              partition,
+              fetchOffset: this.offsetManager
+                .nextOffset(topicPartition.topic, partition)
+                .toString(),
+              maxBytes: maxBytesPerPartition,
+            }))
 
           requestsPerLeader[leader] = requestsPerLeader[leader] || []
-          requestsPerLeader[leader].push({ topic, partitions })
+          requestsPerLeader[leader].push({ topic: topicPartition.topic, partitions })
         }
       }
 
@@ -363,15 +419,36 @@ module.exports = class ConsumerGroup {
             ({ topic }) => topic === topicName
           )
 
-          return partitions.map(partitionData => {
-            const partitionRequestData = topicRequestData.partitions.find(
-              ({ partition }) => partition === partitionData.partition
+          return partitions
+            .filter(
+              partitionData =>
+                !this.seekOffset.has(topicName, partitionData.partition) &&
+                !this.subscriptionState.isPaused(topicName, partitionData.partition)
             )
+            .map(partitionData => {
+              const partitionRequestData = topicRequestData.partitions.find(
+                ({ partition }) => partition === partitionData.partition
+              )
 
-            const fetchedOffset = partitionRequestData.fetchOffset
+              const fetchedOffset = partitionRequestData.fetchOffset
+              const batch = new Batch(topicName, fetchedOffset, partitionData)
 
-            return new Batch(topicName, fetchedOffset, partitionData)
-          })
+              /**
+               * Resolve the offset to skip the control batch since `eachBatch` or `eachMessage` callbacks
+               * won't process empty batches
+               *
+               * @see https://github.com/apache/kafka/blob/9aa660786e46c1efbf5605a6a69136a1dac6edb9/clients/src/main/java/org/apache/kafka/clients/consumer/internals/Fetcher.java#L1499-L1505
+               */
+              if (batch.isEmptyControlRecord() || batch.isEmptyDueToLogCompactedMessages()) {
+                this.resolveOffset({
+                  topic: batch.topic,
+                  partition: batch.partition,
+                  offset: batch.lastOffset(),
+                })
+              }
+
+              return batch
+            })
         })
 
         return flatten(batchesPerPartition)
@@ -385,45 +462,48 @@ module.exports = class ConsumerGroup {
         return []
       }
 
-      const results = await Promise.all(requests)
-      return flatten(results)
+      return BufferedAsyncIterator(requests, e => this.recoverFromFetch(e))
     } catch (e) {
-      if (STALE_METADATA_ERRORS.includes(e.type) || e.name === 'KafkaJSTopicMetadataNotLoaded') {
-        this.logger.debug('Stale cluster metadata, refreshing...', {
-          groupId: this.groupId,
-          memberId: this.memberId,
-          error: e.message,
-        })
-
-        await this.cluster.refreshMetadata()
-        await this.join()
-        await this.sync()
-        throw new KafkaJSError(e.message)
-      }
-
-      if (e.name === 'KafkaJSStaleTopicMetadataAssignment') {
-        this.logger.warn(`${e.message}, resync group`, {
-          groupId: this.groupId,
-          memberId: this.memberId,
-          topic: e.topic,
-          unknownPartitions: e.unknownPartitions,
-        })
-
-        await this.join()
-        await this.sync()
-      }
-
-      if (e.name === 'KafkaJSOffsetOutOfRange') {
-        await this.recoverFromOffsetOutOfRange(e)
-      }
-
-      if (e.name === 'KafkaJSBrokerNotFound') {
-        this.logger.debug(`${e.message}, refreshing metadata and retrying...`)
-        await this.cluster.refreshMetadata()
-      }
-
-      throw e
+      await this.recoverFromFetch(e)
     }
+  }
+
+  async recoverFromFetch(e) {
+    if (STALE_METADATA_ERRORS.includes(e.type) || e.name === 'KafkaJSTopicMetadataNotLoaded') {
+      this.logger.debug('Stale cluster metadata, refreshing...', {
+        groupId: this.groupId,
+        memberId: this.memberId,
+        error: e.message,
+      })
+
+      await this.cluster.refreshMetadata()
+      await this.join()
+      await this.sync()
+      throw new KafkaJSError(e.message)
+    }
+
+    if (e.name === 'KafkaJSStaleTopicMetadataAssignment') {
+      this.logger.warn(`${e.message}, resync group`, {
+        groupId: this.groupId,
+        memberId: this.memberId,
+        topic: e.topic,
+        unknownPartitions: e.unknownPartitions,
+      })
+
+      await this.join()
+      await this.sync()
+    }
+
+    if (e.name === 'KafkaJSOffsetOutOfRange') {
+      await this.recoverFromOffsetOutOfRange(e)
+    }
+
+    if (e.name === 'KafkaJSBrokerNotFound') {
+      this.logger.debug(`${e.message}, refreshing metadata and retrying...`)
+      await this.cluster.refreshMetadata()
+    }
+
+    throw e
   }
 
   async recoverFromOffsetOutOfRange(e) {
@@ -443,7 +523,7 @@ module.exports = class ConsumerGroup {
   generatePartitionsPerSubscribedTopic() {
     const map = new Map()
 
-    for (let topic of this.topicsSubscribed) {
+    for (const topic of this.topicsSubscribed) {
       const partitions = this.cluster
         .findTopicPartitionMetadata(topic)
         .map(m => m.partitionId)
@@ -462,7 +542,7 @@ module.exports = class ConsumerGroup {
 
     const newPartitionsPerSubscribedTopic = this.generatePartitionsPerSubscribedTopic()
 
-    for (let [topic, partitions] of newPartitionsPerSubscribedTopic) {
+    for (const [topic, partitions] of newPartitionsPerSubscribedTopic) {
       const diff = arrayDiff(partitions, this.partitionsPerSubscribedTopic.get(topic))
 
       if (diff.length > 0) {
@@ -472,5 +552,9 @@ module.exports = class ConsumerGroup {
         })
       }
     }
+  }
+
+  hasSeekOffset({ topic, partition }) {
+    return this.seekOffset.has(topic, partition)
   }
 }

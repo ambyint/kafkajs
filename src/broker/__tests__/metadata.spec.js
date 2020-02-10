@@ -40,7 +40,7 @@ describe('Broker > Metadata', () => {
       throttleTime: 0,
       brokers: expect.arrayContaining([
         {
-          host: expect.stringMatching(/\d+\.\d+\.\d+\.\d+/),
+          host: 'localhost',
           nodeId: expect.any(Number),
           port: expect.any(Number),
           rack: null,
@@ -65,6 +65,26 @@ describe('Broker > Metadata', () => {
         },
       ],
     })
+  })
+
+  test('can fetch metatada for all topics', async () => {
+    await broker.connect()
+    await createTopic({ topic: topicName })
+    await createTopic({ topic: `test-topic-${secureRandom()}` })
+
+    let response = await retryProtocol(
+      'LEADER_NOT_AVAILABLE',
+      async () => await broker.metadata([])
+    )
+
+    expect(response.topicMetadata.length).toBeGreaterThanOrEqual(2)
+
+    response = await retryProtocol(
+      'LEADER_NOT_AVAILABLE',
+      async () => await broker.metadata([topicName])
+    )
+
+    expect(response.topicMetadata.length).toEqual(1)
   })
 
   describe('when allowAutoTopicCreation is disabled and the topic does not exist', () => {
