@@ -63,7 +63,7 @@ const versions = {
       requestTimeout: requestTimeout({ rebalanceTimeout, sessionTimeout }),
     }
   },
-  5: ({ groupId, sessionTimeout, rebalanceTimeout, memberId, protocolType, groupProtocols }) => {
+  5: ({ groupId, sessionTimeout, rebalanceTimeout, memberId, groupInstanceId, protocolType, groupProtocols }) => {
     const request = require('./v5/request')
     const response = require('./v5/response')
 
