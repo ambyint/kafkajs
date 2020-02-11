@@ -98,6 +98,8 @@ module.exports = class ConsumerGroup {
       groupProtocols: this.assigners.map(assigner => assigner.protocol({ topics: this.topics })),
     })
 
+    console.log("join group data that is returned", groupData)
+
     this.generationId = groupData.generationId
     this.leaderId = groupData.leaderId
     this.memberId = groupData.memberId
