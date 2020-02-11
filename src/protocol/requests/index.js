@@ -76,6 +76,7 @@ const lookup = (versions, allowExperimentalV011) => (apiKey, definition) => {
   }
 
   const bestSupportedVersion = Math.min(bestImplementedVersion, version.maxVersion)
+  console.log("best support version " + apiKey, bestSupportedVersion)
   return definition.protocol({ version: bestSupportedVersion })
 }
 
