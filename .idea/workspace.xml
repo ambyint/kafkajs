@@ -2,14 +2,9 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="4ce9dee2-6cb2-43c0-b8b4-5ce06d1eb5cb" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/fixtures/v3_assignerMetadata.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/fixtures/v3_request.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/fixtures/v3_response.json" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.spec.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/response.js" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/response.spec.js" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/broker/index.js" beforeDir="false" afterPath="$PROJECT_DIR$/src/broker/index.js" afterDir="false" />
     </list>
     <ignored path="$PROJECT_DIR$/.tmp/" />
     <ignored path="$PROJECT_DIR$/temp/" />
@@ -22,11 +17,56 @@
   </component>
   <component name="FileEditorManager">
     <leaf>
-      <file pinned="false" current-in-tab="true">
+      <file pinned="false" current-in-tab="false">
         <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="363">
-              <caret line="79" column="75" lean-forward="true" selection-start-line="79" selection-start-column="75" selection-end-line="79" selection-end-column="75" />
+            <state relative-caret-position="456">
+              <caret line="77" column="23" selection-start-line="77" selection-start-column="23" selection-end-line="77" selection-end-column="23" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="true">
+        <entry file="file://$PROJECT_DIR$/src/broker/index.js">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="570">
+              <caret line="170" column="43" selection-start-line="170" selection-start-column="43" selection-end-line="170" selection-end-column="43" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/src/protocol/requests/index.js">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="62">
+              <caret line="44" column="28" lean-forward="true" selection-start-line="44" selection-start-column="28" selection-end-line="44" selection-end-column="28" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.js">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="463">
+              <caret line="29" column="24" selection-start-line="29" selection-start-column="24" selection-end-line="29" selection-end-column="24" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/response.js">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="315">
+              <caret line="15" column="3" selection-start-line="15" selection-start-column="3" selection-end-line="15" selection-end-column="3" />
+            </state>
+          </provider>
+        </entry>
+      </file>
+      <file pinned="false" current-in-tab="false">
+        <entry file="file://$PROJECT_DIR$/package.json">
+          <provider selected="true" editor-type-id="text-editor">
+            <state relative-caret-position="330">
+              <caret line="32" selection-start-line="32" selection-end-line="32" />
             </state>
           </provider>
         </entry>
@@ -36,7 +76,13 @@
   <component name="FindInProjectRecents">
     <findStrings>
       <find>husky</find>
+      <find>NETWORK</find>
+      <find>lookupRequest</find>
+      <find>inter.broker.protocol.version</find>
     </findStrings>
+    <dirStrings>
+      <dir>$PROJECT_DIR$/src</dir>
+    </dirStrings>
   </component>
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
@@ -44,14 +90,16 @@
   <component name="IdeDocumentHistory">
     <option name="CHANGED_PATHS">
       <list>
-        <option value="$PROJECT_DIR$/package.json" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v3/request.js" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v3/response.js" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v3/response.spec.js" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v3/request.spec.js" />
-        <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.js" />
         <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/response.js" />
+        <option value="$PROJECT_DIR$/package.json" />
+        <option value="$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js" />
+        <option value="$PROJECT_DIR$/src/protocol/requests/index.js" />
+        <option value="$PROJECT_DIR$/src/broker/index.js" />
       </list>
     </option>
   </component>
@@ -82,66 +130,7 @@
               <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
               <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
               <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="joinGroup" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="joinGroup" type="462c0819:PsiDirectoryNode" />
-              <item name="v1" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="joinGroup" type="462c0819:PsiDirectoryNode" />
-              <item name="v2" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="joinGroup" type="462c0819:PsiDirectoryNode" />
-              <item name="v5" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="produce" type="462c0819:PsiDirectoryNode" />
-            </path>
-            <path>
-              <item name="kafkajs" type="b2602c69:ProjectViewProjectNode" />
-              <item name="kafkajs" type="462c0819:PsiDirectoryNode" />
-              <item name="src" type="462c0819:PsiDirectoryNode" />
-              <item name="protocol" type="462c0819:PsiDirectoryNode" />
-              <item name="requests" type="462c0819:PsiDirectoryNode" />
-              <item name="produce" type="462c0819:PsiDirectoryNode" />
-              <item name="v3" type="462c0819:PsiDirectoryNode" />
+              <item name="broker" type="462c0819:PsiDirectoryNode" />
             </path>
           </expand>
           <select />
@@ -150,6 +139,7 @@
     </panes>
   </component>
   <component name="PropertiesComponent">
+    <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
     <property name="last_opened_file_path" value="$PROJECT_DIR$/src/protocol/requests/joinGroup/fixtures" />
     <property name="node.js.detected.package.eslint" value="true" />
@@ -188,12 +178,12 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1581443122450</updated>
-      <workItem from="1581443124619" duration="4118000" />
+      <workItem from="1581443124619" duration="6637000" />
     </task>
     <servers />
   </component>
   <component name="TimeTrackingManager">
-    <option name="totallyTimeSpent" value="4118000" />
+    <option name="totallyTimeSpent" value="6637000" />
   </component>
   <component name="ToolWindowManager">
     <frame x="0" y="23" width="1792" height="1057" extended-state="0" />
@@ -223,13 +213,6 @@
     <option name="version" value="1" />
   </component>
   <component name="editorHistoryManager">
-    <entry file="file://$PROJECT_DIR$/package.json">
-      <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="805">
-          <caret line="57" column="22" selection-start-line="57" selection-start-column="22" selection-end-line="57" selection-end-column="22" />
-        </state>
-      </provider>
-    </entry>
     <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/fixtures/v2_request.json">
       <provider selected="true" editor-type-id="text-editor" />
     </entry>
@@ -321,6 +304,20 @@
         </state>
       </provider>
     </entry>
+    <entry file="file://$PROJECT_DIR$/package.json">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="330">
+          <caret line="32" selection-start-line="32" selection-end-line="32" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.js">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="463">
+          <caret line="29" column="24" selection-start-line="29" selection-start-column="24" selection-end-line="29" selection-end-column="24" />
+        </state>
+      </provider>
+    </entry>
     <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/response.js">
       <provider selected="true" editor-type-id="text-editor">
         <state relative-caret-position="315">
@@ -328,17 +325,24 @@
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/v5/request.js">
+    <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="582">
-          <caret line="31" column="33" lean-forward="true" selection-start-line="31" selection-start-column="33" selection-end-line="31" selection-end-column="33" />
+        <state relative-caret-position="456">
+          <caret line="77" column="23" selection-start-line="77" selection-start-column="23" selection-end-line="77" selection-end-column="23" />
         </state>
       </provider>
     </entry>
-    <entry file="file://$PROJECT_DIR$/src/protocol/requests/joinGroup/index.js">
+    <entry file="file://$PROJECT_DIR$/src/protocol/requests/index.js">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="363">
-          <caret line="79" column="75" lean-forward="true" selection-start-line="79" selection-start-column="75" selection-end-line="79" selection-end-column="75" />
+        <state relative-caret-position="62">
+          <caret line="44" column="28" lean-forward="true" selection-start-line="44" selection-start-column="28" selection-end-line="44" selection-end-column="28" />
+        </state>
+      </provider>
+    </entry>
+    <entry file="file://$PROJECT_DIR$/src/broker/index.js">
+      <provider selected="true" editor-type-id="text-editor">
+        <state relative-caret-position="570">
+          <caret line="170" column="43" selection-start-line="170" selection-start-column="43" selection-end-line="170" selection-end-column="43" />
         </state>
       </provider>
     </entry>

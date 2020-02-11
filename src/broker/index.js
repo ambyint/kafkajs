@@ -167,15 +167,17 @@ module.exports = class Broker {
     }
 
     return response.apiVersions.reduce(
-      (obj, version) =>
+      (obj, version) => {
+        console.log("api version", version)
         Object.assign(obj, {
           [version.apiKey]: {
             minVersion: version.minVersion,
             maxVersion: version.maxVersion,
           },
         }),
-      {}
-    )
+          {}
+      })
+
   }
 
   /**

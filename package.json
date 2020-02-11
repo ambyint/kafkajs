@@ -30,7 +30,6 @@
     "test": "yarn lint && JEST_JUNIT_OUTPUT=test-report.xml ./scripts/testWithKafka.sh 'yarn jest --ci --maxWorkers=4 --no-watchman --forceExit'",
     "lint": "find . -path ./node_modules -prune -o -path ./coverage -prune -o -path ./website -prune -o -name '*.js' -print0 | xargs -0 ./node_modules/.bin/eslint",
     "format": "find . -path ./node_modules -prune -o -path ./coverage -prune -o -path ./website -prune -o -name '*.js' -print0 | xargs -0 ./node_modules/.bin/prettier --write",
-    "precommit": "lint-staged",
     "test:group:broker": "yarn jest --forceExit --testPathPattern 'src/broker/.*'",
     "test:group:admin": "yarn jest --forceExit --testPathPattern 'src/admin/.*'",
     "test:group:producer": "yarn jest --forceExit --testPathPattern 'src/producer/.*'",
