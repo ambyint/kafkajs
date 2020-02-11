@@ -12,15 +12,17 @@ const requestV1 = require('../v1/request')
  *     protocol_metadata => BYTES
  */
 
-module.exports = ({
-  groupId,
-  sessionTimeout,
-  rebalanceTimeout,
-  memberId,
-  protocolType,
-  groupProtocols,
-}) =>
-  Object.assign(
+module.exports = (incoming) => {
+  console.log("incoming for join group v2", incoming)
+  const {
+    groupId,
+    sessionTimeout,
+    rebalanceTimeout,
+    memberId,
+    protocolType,
+    groupProtocols,
+  } = incoming;
+  return Object.assign(
     requestV1({
       groupId,
       sessionTimeout,
@@ -31,3 +33,4 @@ module.exports = ({
     }),
     { apiVersion: 2 }
   )
+}
