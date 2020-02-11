@@ -58,6 +58,7 @@ const findApiName = apiKey => names[keys.indexOf(apiKey)]
 
 const lookup = (versions, allowExperimentalV011) => (apiKey, definition) => {
   const version = versions[apiKey]
+  console.log("version info " + apiKey, version)
   const availableVersions = definition.versions.map(Number)
   console.log("available versions " + apiKey, availableVersions)
   const allowedVersions = allowExperimentalV011
