@@ -167,17 +167,15 @@ module.exports = class Broker {
     }
 
     return response.apiVersions.reduce(
-      (obj, version) => {
-        console.log("api version", version)
+      (obj, version) =>
         Object.assign(obj, {
           [version.apiKey]: {
             minVersion: version.minVersion,
             maxVersion: version.maxVersion,
           },
         }),
-          {}
-      })
-
+      {}
+    )
   }
 
   /**
@@ -350,7 +348,6 @@ module.exports = class Broker {
     groupProtocols,
   }) {
     const joinGroup = this.lookupRequest(apiKeys.JoinGroup, requests.JoinGroup)
-    console.log(joinGroup)
     return await this.connection.send(
       joinGroup({
         groupId,
