@@ -25,7 +25,7 @@ const decode = async rawData => {
 
   failIfVersionNotSupported(errorCode)
 
-  return {
+  let decoded = {
     throttleTime,
     errorCode,
     generationId: decoder.readInt32(),
@@ -38,6 +38,8 @@ const decode = async rawData => {
       memberMetadata: decoder.readBytes(),
     })),
   }
+  console.log("response v5 decoded", decoded)
+  return decoded
 }
 
 module.exports = {
