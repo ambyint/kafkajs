@@ -21,6 +21,7 @@ const decode = async rawData => {
   console.log("decode", rawData.toString("hex"))
   const throttleTime = decoder.readInt32()
   const errorCode = decoder.readInt16()
+  console.log("v5 error code", errorCode)
 
   failIfVersionNotSupported(errorCode)
 
