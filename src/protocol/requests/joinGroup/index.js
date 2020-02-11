@@ -73,7 +73,7 @@ const versions = {
         sessionTimeout,
         rebalanceTimeout,
         memberId,
-        groupInstanceId,
+        groupInstanceId: null,
         protocolType,
         groupProtocols,
       }),
