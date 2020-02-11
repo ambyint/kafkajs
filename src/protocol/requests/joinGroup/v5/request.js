@@ -14,19 +14,21 @@ const { JoinGroup: apiKey } = require('../../apiKeys')
   * metadata => BYTES
  */
 
-module.exports = ({
-                    groupId,
-                    sessionTimeout,
-                    rebalanceTimeout,
-                    memberId,
-                    groupInstanceId = null,
-                    protocolType,
-                    groupProtocols,
-                  }) => ({
+module.exports = (incoming) => ({
   apiKey,
   apiVersion: 5,
   apiName: 'JoinGroup',
   encode: async () => {
+    const {
+      groupId,
+      sessionTimeout,
+      rebalanceTimeout,
+      memberId,
+      groupInstanceId = null,
+      protocolType,
+      groupProtocols,
+    } = incoming
+    console.log("incoming join group version 5 params", incoming)
     return new Encoder()
       .writeString(groupId)
       .writeInt32(sessionTimeout)

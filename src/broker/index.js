@@ -334,6 +334,7 @@ module.exports = class Broker {
    * @param {number} rebalanceTimeout The maximum time that the coordinator will wait for each member
    *                                  to rejoin when rebalancing the group
    * @param {string} [memberId=""] The assigned consumer id or an empty string for a new consumer
+   * @param {string} [groupInstanceId=""] The assigned group instance id or an empty string for a new consumer
    * @param {string} [protocolType="consumer"] Unique name for class of protocols implemented by group
    * @param {Array} groupProtocols List of protocols that the member supports (assignment strategy)
    *                                [{ name: 'AssignerName', metadata: '{"version": 1, "topics": []}' }]
@@ -344,6 +345,7 @@ module.exports = class Broker {
     sessionTimeout,
     rebalanceTimeout,
     memberId = '',
+    groupInstanceId,
     protocolType = 'consumer',
     groupProtocols,
   }) {
@@ -354,6 +356,7 @@ module.exports = class Broker {
         sessionTimeout,
         rebalanceTimeout,
         memberId,
+        groupInstanceId,
         protocolType,
         groupProtocols,
       })

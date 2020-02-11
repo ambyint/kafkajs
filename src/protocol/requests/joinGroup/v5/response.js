@@ -18,6 +18,7 @@ const { parse: parseV0 } = require('../v0/response')
 
 const decode = async rawData => {
   const decoder = new Decoder(rawData)
+  console.log("decode", rawData.toString("hex"))
   const throttleTime = decoder.readInt32()
   const errorCode = decoder.readInt16()
 
