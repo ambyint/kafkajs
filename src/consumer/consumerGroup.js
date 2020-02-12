@@ -90,11 +90,13 @@ module.exports = class ConsumerGroup {
 
     this.coordinator = await this.cluster.findGroupCoordinator({ groupId })
 
+    console.log("using process env name", process.env.name)
     const groupData = await this.coordinator.joinGroup({
       groupId,
       sessionTimeout,
       rebalanceTimeout,
       memberId: this.memberId || '',
+      groupInstanceId: this.groupInstanceId || process.env.name,
       groupProtocols: this.assigners.map(assigner => assigner.protocol({ topics: this.topics })),
     })
 
@@ -104,6 +106,7 @@ module.exports = class ConsumerGroup {
     this.leaderId = groupData.leaderId
     this.memberId = groupData.memberId
     this.members = groupData.members
+    this.groupInstanceId = groupData.groupInstanceId
     this.groupProtocol = groupData.groupProtocol
   }
 
