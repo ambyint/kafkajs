@@ -366,6 +366,7 @@ module.exports = class Broker {
       return initialJoinData;
     }
 
+    console.log("retrying joining of group", initialJoinData)
     return await this.connection.send(
       joinGroup({
         groupId,
