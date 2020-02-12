@@ -1,6 +1,5 @@
 const Decoder = require('../../../decoder')
-const { failIfVersionNotSupported } = require('../../../error')
-const { parse: parseV0 } = require('../v0/response')
+const { failure, createErrorFromCode, failIfVersionNotSupported } = require('../../../error')
 
 /**
  * JoinGroup Response (Version: 5) => throttle_time_ms error_code generation_id protocol_name leader member_id [members]
@@ -42,7 +41,15 @@ const decode = async rawData => {
   return decoded
 }
 
+const parse = async data => {
+  if (data.errorCode !== 79 && failure(data.errorCode)) {
+    throw createErrorFromCode(data.errorCode)
+  }
+
+  return data
+}
+
 module.exports = {
   decode,
-  parse: parseV0,
+  parse,
 }
