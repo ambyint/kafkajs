@@ -58,9 +58,7 @@ const findApiName = apiKey => names[keys.indexOf(apiKey)]
 
 const lookup = (versions, allowExperimentalV011) => (apiKey, definition) => {
   const version = versions[apiKey]
-  console.log("version info " + apiKey, version)
   const availableVersions = definition.versions.map(Number)
-  console.log("available versions " + apiKey, availableVersions)
   const allowedVersions = allowExperimentalV011
     ? availableVersions
     : availableVersions.filter(
@@ -68,8 +66,6 @@ const lookup = (versions, allowExperimentalV011) => (apiKey, definition) => {
           !BEGIN_EXPERIMENTAL_V011_REQUEST_VERSION[apiKey] ||
           version < BEGIN_EXPERIMENTAL_V011_REQUEST_VERSION[apiKey]
       )
-  console.log("allowed versions " + apiKey, allowedVersions)
-
   const bestImplementedVersion = Math.max.apply(this, allowedVersions)
 
   if (!version || version.maxVersion == null) {
@@ -80,7 +76,6 @@ const lookup = (versions, allowExperimentalV011) => (apiKey, definition) => {
   }
 
   const bestSupportedVersion = Math.min(bestImplementedVersion, version.maxVersion)
-  console.log("best support version " + apiKey, bestSupportedVersion)
   return definition.protocol({ version: bestSupportedVersion })
 }
 
