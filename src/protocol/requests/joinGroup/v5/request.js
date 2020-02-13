@@ -29,7 +29,7 @@ module.exports = (incoming) => ({
       groupProtocols,
     } = incoming
     console.log("incoming join group version 5 params", incoming)
-    return new Encoder()
+    const output = new Encoder()
       .writeString(groupId)
       .writeInt32(sessionTimeout)
       .writeInt32(rebalanceTimeout)
@@ -37,6 +37,8 @@ module.exports = (incoming) => ({
       .writeString(groupInstanceId)
       .writeString(protocolType)
       .writeArray(groupProtocols.map(encodeGroupProtocols))
+    console.log("join output", output.toString("hex"))
+    return output
   },
 })
 
