@@ -2,20 +2,22 @@ const Encoder = require('../../../encoder')
 const { Heartbeat: apiKey } = require('../../apiKeys')
 
 /**
- * Heartbeat Request (Version: 0) => group_id group_generation_id member_id
- *   group_id => STRING
- *   group_generation_id => INT32
- *   member_id => STRING
+ * Heartbeat Request (Version: 3) => group_id generation_id member_id group_instance_id
+ * group_id => STRING
+ * generation_id => INT32
+ * member_id => STRING
+ * group_instance_id => NULLABLE_STRING
  */
 
-module.exports = ({ groupId, groupGenerationId, memberId }) => ({
+module.exports = ({ groupId, groupGenerationId, memberId, groupInstanceId }) => ({
   apiKey,
-  apiVersion: 0,
+  apiVersion: 3,
   apiName: 'Heartbeat',
   encode: async () => {
     return new Encoder()
       .writeString(groupId)
       .writeInt32(groupGenerationId)
       .writeString(memberId)
+      .writeString(groupInstanceId)
   },
 })

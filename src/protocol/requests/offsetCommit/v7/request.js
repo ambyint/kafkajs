@@ -15,16 +15,16 @@ const { OffsetCommit: apiKey } = require('../../apiKeys')
  *       metadata => NULLABLE_STRING
  */
 
-module.exports = ({ groupId, groupGenerationId, memberId, retentionTime, topics }) => ({
+module.exports = ({ groupId, groupGenerationId, memberId, groupInstanceId, topics }) => ({
   apiKey,
-  apiVersion: 2,
+  apiVersion: 7,
   apiName: 'OffsetCommit',
   encode: async () => {
     return new Encoder()
       .writeString(groupId)
       .writeInt32(groupGenerationId)
       .writeString(memberId)
-      .writeInt64(retentionTime)
+      .writeString(groupInstanceId)
       .writeArray(topics.map(encodeTopic))
   },
 })
@@ -33,9 +33,10 @@ const encodeTopic = ({ topic, partitions }) => {
   return new Encoder().writeString(topic).writeArray(partitions.map(encodePartition))
 }
 
-const encodePartition = ({ partition, offset, metadata = null }) => {
+const encodePartition = ({ partition, offset, leaderEpoch, metadata = null }) => {
   return new Encoder()
     .writeInt32(partition)
     .writeInt64(offset)
+    .writeInt32(leaderEpoch)
     .writeString(metadata)
 }

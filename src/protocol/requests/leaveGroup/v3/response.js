@@ -1,27 +1,14 @@
-const Decoder = require('../../../decoder')
-const { failure, createErrorFromCode, failIfVersionNotSupported } = require('../../../error')
+const { parse, decode } = require('../v1/response')
 
 /**
- * LeaveGroup Response (Version: 0) => error_code
- *   error_code => INT16
+ * LeaveGroup Response (Version: 3) => throttle_time_ms error_code [members]
+ * throttle_time_ms => INT32
+ * error_code => INT16
+ * members => member_id group_instance_id error_code
+ * member_id => STRING
+ * group_instance_id => NULLABLE_STRING
+ * error_code => INT16
  */
-
-const decode = async rawData => {
-  const decoder = new Decoder(rawData)
-  const errorCode = decoder.readInt16()
-
-  failIfVersionNotSupported(errorCode)
-
-  return { errorCode }
-}
-
-const parse = async data => {
-  if (failure(data.errorCode)) {
-    throw createErrorFromCode(data.errorCode)
-  }
-
-  return data
-}
 
 module.exports = {
   decode,
