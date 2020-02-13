@@ -28,6 +28,7 @@ module.exports = class ConsumerGroup {
   constructor({
     cluster,
     groupId,
+    groupInstanceId,
     topics,
     topicConfigurations,
     logger,
@@ -45,6 +46,7 @@ module.exports = class ConsumerGroup {
   }) {
     this.cluster = cluster
     this.groupId = groupId
+    this.groupInstanceId = groupInstanceId
     this.topics = topics
     this.topicsSubscribed = topics
     this.topicConfigurations = topicConfigurations
@@ -86,17 +88,16 @@ module.exports = class ConsumerGroup {
   }
 
   async join() {
-    const { groupId, sessionTimeout, rebalanceTimeout } = this
+    const { groupId, sessionTimeout, rebalanceTimeout, groupInstanceId } = this
 
     this.coordinator = await this.cluster.findGroupCoordinator({ groupId })
 
-    console.log("using process env name", process.env.name)
     const groupData = await this.coordinator.joinGroup({
       groupId,
       sessionTimeout,
       rebalanceTimeout,
       memberId: this.memberId || '',
-      groupInstanceId: this.groupInstanceId || process.env.name,
+      groupInstanceId,
       groupProtocols: this.assigners.map(assigner => assigner.protocol({ topics: this.topics })),
     })
 

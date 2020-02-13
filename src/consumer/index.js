@@ -26,6 +26,7 @@ const specialOffsets = [
 module.exports = ({
   cluster,
   groupId,
+  groupInstanceId = null,
   logger: rootLogger,
   partitionAssigners = [roundRobin],
   sessionTimeout = 30000,
@@ -66,6 +67,7 @@ module.exports = ({
       topicConfigurations: topics,
       cluster,
       groupId,
+      groupInstanceId,
       assigners,
       sessionTimeout,
       rebalanceTimeout,
