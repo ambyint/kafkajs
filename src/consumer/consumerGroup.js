@@ -101,8 +101,6 @@ module.exports = class ConsumerGroup {
       groupProtocols: this.assigners.map(assigner => assigner.protocol({ topics: this.topics })),
     })
 
-    console.log("join group data that is returned", groupData)
-
     this.generationId = groupData.generationId
     this.leaderId = groupData.leaderId
     this.memberId = groupData.memberId
@@ -112,9 +110,9 @@ module.exports = class ConsumerGroup {
   }
 
   async leave() {
-    const { groupId, memberId } = this
+    const { groupId, memberId, groupInstanceId } = this
     if (memberId) {
-      await this.coordinator.leaveGroup({ groupId, memberId })
+      await this.coordinator.leaveGroup({ groupId, memberId, groupInstanceId })
       this.memberId = null
     }
   }
@@ -125,6 +123,7 @@ module.exports = class ConsumerGroup {
       groupId,
       generationId,
       memberId,
+      groupInstanceId,
       members,
       groupProtocol,
       topics,
@@ -160,6 +159,7 @@ module.exports = class ConsumerGroup {
       groupId,
       generationId,
       memberId,
+      groupInstanceId,
       groupAssignment: assignment,
     })
 
@@ -303,13 +303,14 @@ module.exports = class ConsumerGroup {
   }
 
   async heartbeat({ interval }) {
-    const { groupId, generationId, memberId } = this
+    const { groupId, generationId, memberId, groupInstanceId } = this
     const now = Date.now()
 
     if (memberId && now >= this.lastRequest + interval) {
       const payload = {
         groupId,
         memberId,
+        groupInstanceId,
         groupGenerationId: generationId,
       }
 

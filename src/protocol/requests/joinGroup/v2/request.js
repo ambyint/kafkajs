@@ -13,7 +13,6 @@ const requestV1 = require('../v1/request')
  */
 
 module.exports = (incoming) => {
-  console.log("incoming for join group v2", incoming)
   const {
     groupId,
     sessionTimeout,

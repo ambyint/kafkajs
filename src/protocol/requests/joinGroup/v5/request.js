@@ -28,7 +28,6 @@ module.exports = (incoming) => ({
       protocolType,
       groupProtocols,
     } = incoming
-    console.log("incoming join group version 5 params", incoming)
     return new Encoder()
       .writeString(groupId)
       .writeInt32(sessionTimeout)

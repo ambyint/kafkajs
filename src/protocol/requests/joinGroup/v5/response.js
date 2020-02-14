@@ -17,14 +17,12 @@ const { failure, createErrorFromCode, failIfVersionNotSupported } = require('../
 
 const decode = async rawData => {
   const decoder = new Decoder(rawData)
-  console.log("decode", rawData.toString("hex"))
   const throttleTime = decoder.readInt32()
   const errorCode = decoder.readInt16()
-  console.log("v5 error code", errorCode)
 
   failIfVersionNotSupported(errorCode)
 
-  let decoded = {
+  return {
     throttleTime,
     errorCode,
     generationId: decoder.readInt32(),
@@ -37,8 +35,6 @@ const decode = async rawData => {
       memberMetadata: decoder.readBytes(),
     })),
   }
-  console.log("response v5 decoded", decoded)
-  return decoded
 }
 
 const parse = async data => {

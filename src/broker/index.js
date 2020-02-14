@@ -307,11 +307,12 @@ module.exports = class Broker {
    * @param {string} groupId The group id
    * @param {number} groupGenerationId The generation of the group
    * @param {string} memberId The member id assigned by the group coordinator
+   * @param {string} groupInstanceId
    * @returns {Promise}
    */
-  async heartbeat({ groupId, groupGenerationId, memberId }) {
+  async heartbeat({ groupId, groupGenerationId, memberId, groupInstanceId }) {
     const heartbeat = this.lookupRequest(apiKeys.Heartbeat, requests.Heartbeat)
-    return await this.connection.send(heartbeat({ groupId, groupGenerationId, memberId }))
+    return await this.connection.send(heartbeat({ groupId, groupGenerationId, memberId, groupInstanceId }))
   }
 
   /**
@@ -366,7 +367,6 @@ module.exports = class Broker {
       return initialJoinData;
     }
 
-    console.log("retrying joining of group", initialJoinData)
     return await this.connection.send(
       joinGroup({
         groupId,
@@ -384,11 +384,12 @@ module.exports = class Broker {
    * @public
    * @param {string} groupId
    * @param {string} memberId
+   * @param {string} groupInstanceId
    * @returns {Promise}
    */
-  async leaveGroup({ groupId, memberId }) {
+  async leaveGroup({ groupId, memberId, groupInstanceId }) {
     const leaveGroup = this.lookupRequest(apiKeys.LeaveGroup, requests.LeaveGroup)
-    return await this.connection.send(leaveGroup({ groupId, memberId }))
+    return await this.connection.send(leaveGroup({ groupId, memberId, groupInstanceId }))
   }
 
   /**
@@ -396,16 +397,18 @@ module.exports = class Broker {
    * @param {string} groupId
    * @param {number} generationId
    * @param {string} memberId
+   * @param {string} groupInstanceId
    * @param {object} groupAssignment
    * @returns {Promise}
    */
-  async syncGroup({ groupId, generationId, memberId, groupAssignment }) {
+  async syncGroup({ groupId, generationId, memberId, groupInstanceId, groupAssignment }) {
     const syncGroup = this.lookupRequest(apiKeys.SyncGroup, requests.SyncGroup)
     return await this.connection.send(
       syncGroup({
         groupId,
         generationId,
         memberId,
+        groupInstanceId,
         groupAssignment,
       })
     )
@@ -448,8 +451,7 @@ module.exports = class Broker {
    * @param {string} groupId
    * @param {number} groupGenerationId
    * @param {string} memberId
-   * @param {number} [retentionTime=-1] -1 signals to the broker that its default configuration
-   *                                    should be used.
+   * @param {string} groupInstanceId
    * @param {object} topics Topics to commit offsets, e.g:
    *                  [
    *                    {
@@ -461,14 +463,14 @@ module.exports = class Broker {
    *                  ]
    * @returns {Promise}
    */
-  async offsetCommit({ groupId, groupGenerationId, memberId, retentionTime, topics }) {
+  async offsetCommit({ groupId, groupGenerationId, memberId, groupInstanceId, topics }) {
     const offsetCommit = this.lookupRequest(apiKeys.OffsetCommit, requests.OffsetCommit)
     return await this.connection.send(
       offsetCommit({
         groupId,
         groupGenerationId,
         memberId,
-        retentionTime,
+        groupInstanceId,
         topics,
       })
     )

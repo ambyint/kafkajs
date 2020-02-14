@@ -235,7 +235,7 @@ module.exports = class OffsetManager {
   }
 
   async commitOffsets(offsets = {}) {
-    const { groupId, generationId, memberId } = this
+    const { groupId, generationId, memberId, groupInstanceId } = this
     const { topics = this.uncommittedOffsets().topics } = offsets
 
     if (topics.length === 0) {
@@ -246,6 +246,7 @@ module.exports = class OffsetManager {
     const payload = {
       groupId,
       memberId,
+      groupInstanceId,
       groupGenerationId: generationId,
       topics,
     }
