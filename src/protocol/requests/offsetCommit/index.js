@@ -41,8 +41,8 @@ const versions = {
     }
   },
   7: ({ groupId, groupGenerationId, memberId, retentionTime = RETENTION_TIME, topics, groupInstanceId }) => {
-    const request = require('./v3/request')
-    const response = require('./v3/response')
+    const request = require('./v7/request')
+    const response = require('./v7/response')
     return {
       request: request({
         groupId,
