@@ -9,7 +9,7 @@ const { LeaveGroup: apiKey } = require('../../apiKeys')
  * group_instance_id => NULLABLE_STRING
  */
 
-module.exports = ({ groupId, memberId, groupInstanceId, }) => ({
+module.exports = ({ groupId, memberId, groupInstanceId }) => ({
   apiKey,
   apiVersion: 3,
   apiName: 'LeaveGroup',

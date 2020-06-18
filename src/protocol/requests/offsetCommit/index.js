@@ -40,6 +40,21 @@ const versions = {
       response,
     }
   },
+  7: ({ groupId, groupGenerationId, memberId, retentionTime = RETENTION_TIME, topics, groupInstanceId }) => {
+    const request = require('./v3/request')
+    const response = require('./v3/response')
+    return {
+      request: request({
+        groupId,
+        groupGenerationId,
+        memberId,
+        retentionTime,
+        topics,
+        groupInstanceId,
+      }),
+      response,
+    }
+  },
 }
 
 module.exports = {
